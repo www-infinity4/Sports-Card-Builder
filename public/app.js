@@ -1,6 +1,8 @@
 const sendButton = document.getElementById('send');
-const playerInput = document.getElementById('player');
+const seriesSelect = document.getElementById('series');
+const subjectInput = document.getElementById('subject');
 const messageInput = document.getElementById('message');
+const starterEl = document.getElementById('starter');
 const chatEl = document.getElementById('chat');
 const cardEl = document.getElementById('card');
 
@@ -8,6 +10,21 @@ const messages = [];
 
 function renderChat() {
   chatEl.textContent = messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
+}
+
+async function loadReleasePlan() {
+  const res = await fetch('/api/releases');
+  const data = await res.json();
+
+  Object.entries(data.series).forEach(([key, value]) => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = value.name;
+    seriesSelect.appendChild(option);
+  });
+
+  seriesSelect.value = 'diamond-kings-2026';
+  starterEl.textContent = data.starterWave.join('\n');
 }
 
 sendButton.addEventListener('click', async () => {
@@ -21,7 +38,8 @@ sendButton.addEventListener('click', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      playerName: playerInput.value.trim(),
+      seriesKey: seriesSelect.value,
+      subjectName: subjectInput.value.trim(),
       messages
     })
   });
@@ -36,4 +54,8 @@ sendButton.addEventListener('click', async () => {
 
   renderChat();
   messageInput.value = '';
+});
+
+loadReleasePlan().catch((error) => {
+  starterEl.textContent = `Failed to load release plan: ${error.message}`;
 });

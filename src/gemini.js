@@ -16,17 +16,17 @@ function parseJsonFromText(text) {
   }
 }
 
-async function generateCardWithGemini({ apiKey, model, messages, playerName }) {
+async function generateCardWithGemini({ apiKey, model, messages, subjectName, seriesKey }) {
   if (!apiKey) {
-    const card = buildCardSkeleton(playerName, messages);
+    const card = buildCardSkeleton(subjectName, messages, seriesKey);
     return {
-      reply: `Gemini key missing, returning template-safe draft for ${playerName}.`,
+      reply: `Gemini key missing, returning template-safe draft for ${subjectName}.`,
       card
     };
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const prompt = buildGeminiPrompt(messages, playerName);
+  const prompt = buildGeminiPrompt(messages, subjectName, seriesKey);
 
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -47,14 +47,14 @@ async function generateCardWithGemini({ apiKey, model, messages, playerName }) {
   const parsed = parseJsonFromText(text);
 
   if (!parsed?.card) {
-    const card = buildCardSkeleton(playerName, messages);
+    const card = buildCardSkeleton(subjectName, messages, seriesKey);
     return {
-      reply: parsed?.reply || `Built a template-safe card draft for ${playerName}.`,
+      reply: parsed?.reply || `Built a template-safe card draft for ${subjectName}.`,
       card
     };
   }
 
-  parsed.card.styleAnchors = buildCardSkeleton(playerName).styleAnchors;
+  parsed.card.styleAnchors = buildCardSkeleton(subjectName, [], seriesKey).styleAnchors;
   return parsed;
 }
 

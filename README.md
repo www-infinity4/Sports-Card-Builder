@@ -1,6 +1,19 @@
 # Sports-Card-Builder
 
-A minimal Gemini-powered baseball card builder app that keeps a consistent Diamond Kings 1/1 identity while using player-specific palettes.
+A minimal Gemini-powered baseball card builder app with multi-series release support.
+
+It now includes structured sets for:
+- Topps Now 2026
+- Diamond Kings 2026
+- Future Stars 2026
+- Front Office Icons 2026
+- Pitching Excellence 2026
+- Team Spotlight Cards
+
+Including a starter wave:
+1. Dave Stieb — Most Underrated Pitcher of the 1980s
+2. Jacob deGrom — 100 Wins
+3. Orioles 6-Run First Inning Team Spotlight
 
 ## Setup
 

@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { generateCardWithGemini } = require('./gemini');
+const { getReleasePlan } = require('./style-template');
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
@@ -36,6 +37,10 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(req, res);
   }
 
+  if (req.method === 'GET' && req.url === '/api/releases') {
+    return sendJson(res, 200, getReleasePlan());
+  }
+
   if (req.method === 'POST' && req.url === '/api/chat') {
     let body = '';
     req.on('data', (chunk) => {
@@ -55,7 +60,8 @@ const server = http.createServer(async (req, res) => {
               }))
           : [];
 
-        const playerName = String(parsed.playerName || 'Featured Player').slice(0, 120);
+        const subjectName = String(parsed.subjectName || parsed.playerName || 'Featured Card').slice(0, 120);
+        const seriesKey = String(parsed.seriesKey || 'diamond-kings-2026').slice(0, 120);
 
         if (!messages.length) {
           return sendJson(res, 400, { error: 'At least one message is required.' });
@@ -65,7 +71,8 @@ const server = http.createServer(async (req, res) => {
           apiKey: GEMINI_API_KEY,
           model: GEMINI_MODEL,
           messages,
-          playerName
+          subjectName,
+          seriesKey
         });
 
         return sendJson(res, 200, result);
