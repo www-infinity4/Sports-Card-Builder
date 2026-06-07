@@ -162,7 +162,7 @@ const RELEASE_SERIES = {
 };
 
 const STARTER_WAVE = [
-  'Dave Stieb — Most Underrated Pitcher of the 1980s',
+  'Dave Stieb - Most Underrated Pitcher of the 1980s',
   'Jacob deGrom — 100 Wins',
   'Orioles 6-Run First Inning Team Spotlight'
 ];

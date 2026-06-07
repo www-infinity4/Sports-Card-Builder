@@ -1,7 +1,7 @@
 {
   "name": "sports-card-builder",
   "version": "1.0.0",
-  "description": "",
+  "description": "Gemini-powered baseball card builder with multi-series release support",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -12,7 +12,7 @@
     "url": "git+https://github.com/www-infinity4/Sports-Card-Builder.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "www-infinity4",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {

@@ -46,6 +46,6 @@ test('release plan includes first three starter cards', () => {
   const plan = getReleasePlan();
   assert.equal(plan.starterWave.length, 3);
   assert.deepEqual(plan.starterWave, STARTER_WAVE);
-  assert.equal(plan.starterWave[0], 'Dave Stieb — Most Underrated Pitcher of the 1980s');
+  assert.equal(plan.starterWave[0], 'Dave Stieb - Most Underrated Pitcher of the 1980s');
   assert.ok(plan.series['team-spotlight-2026']);
 });

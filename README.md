@@ -11,7 +11,7 @@ It now includes structured sets for:
 - Team Spotlight Cards
 
 Including a starter wave:
-1. Dave Stieb — Most Underrated Pitcher of the 1980s
+1. Dave Stieb - Most Underrated Pitcher of the 1980s
 2. Jacob deGrom — 100 Wins
 3. Orioles 6-Run First Inning Team Spotlight
 
