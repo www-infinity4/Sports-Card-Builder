@@ -1,0 +1,22 @@
+{
+  "name": "sports-card-builder",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/www-infinity4/Sports-Card-Builder.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/www-infinity4/Sports-Card-Builder/issues"
+  },
+  "homepage": "https://github.com/www-infinity4/Sports-Card-Builder#readme"
+}
