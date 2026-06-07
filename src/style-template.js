@@ -198,11 +198,13 @@ function buildGeminiPrompt(messages, subjectName, seriesKey = 'diamond-kings-202
     .map((m, i) => `${i + 1}. ${m.role.toUpperCase()}: ${m.content}`)
     .join('\n');
 
+  const anchorInstructions = seriesKey === 'diamond-kings-2026'
+    ? `Diamond Kings fixed anchors to prevent style drift:\n- ${series.styleAnchors.join('\n- ')}`
+    : `Preserve these series anchors exactly:\n- ${series.styleAnchors.join('\n- ')}`;
+
   return `You are a premium baseball card design assistant.
 Build a card in the "${series.name}" release.
-Preserve these series anchors exactly:\n- ${series.styleAnchors.join('\n- ')}
-
-Diamond Kings fixed anchors to prevent style drift:\n- ${DIAMOND_KINGS_ANCHORS.join('\n- ')}
+${anchorInstructions}
 
 Use player-specific Diamond Kings palettes when player name matches:
 - Manzardo: red/navy/gold

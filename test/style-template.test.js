@@ -15,7 +15,7 @@ test('diamond kings anchors include bat-barrel relic integration', () => {
 });
 
 test('subject palettes are fixed and case-insensitive', () => {
-  assert.deepEqual(paletteForSubject('Albies', 'diamond-kings-2026'), ['blue', 'purple', 'yellow', 'white', 'green']);
+  assert.deepEqual(paletteForSubject('aLbIeS', 'diamond-kings-2026'), ['blue', 'purple', 'yellow', 'white', 'green']);
   assert.deepEqual(paletteForSubject('Unknown', 'topps-now-2026'), ['white', 'silver', 'blue', 'gold']);
 });
 

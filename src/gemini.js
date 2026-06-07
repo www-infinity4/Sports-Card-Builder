@@ -68,6 +68,7 @@ async function generateCardWithGemini({ apiKey, model, messages, subjectName, se
     };
   }
 
+  // Enforce the selected set template so generated cards stay consistent across a release.
   parsed.card.styleAnchors = buildCardSkeleton(subjectName, [], seriesKey).styleAnchors;
   return parsed;
 }
