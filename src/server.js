@@ -8,6 +8,10 @@ const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const MAX_REQUEST_BODY_BYTES = 1_000_000;
+const MAX_MESSAGE_LENGTH = 3000;
+const MAX_SUBJECT_LENGTH = 120;
+const MAX_SERIES_KEY_LENGTH = 120;
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -45,7 +49,7 @@ const server = http.createServer(async (req, res) => {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) req.destroy();
+      if (body.length > MAX_REQUEST_BODY_BYTES) req.destroy();
     });
 
     req.on('end', async () => {
@@ -56,12 +60,12 @@ const server = http.createServer(async (req, res) => {
               .filter((m) => m && typeof m.content === 'string')
               .map((m) => ({
                 role: m.role === 'assistant' ? 'assistant' : 'user',
-                content: m.content.slice(0, 3000)
+                content: m.content.slice(0, MAX_MESSAGE_LENGTH)
               }))
           : [];
 
-        const subjectName = String(parsed.subjectName || parsed.playerName || 'Featured Card').slice(0, 120);
-        const seriesKey = String(parsed.seriesKey || 'diamond-kings-2026').slice(0, 120);
+        const subjectName = String(parsed.subjectName || parsed.playerName || 'Featured Card').slice(0, MAX_SUBJECT_LENGTH);
+        const seriesKey = String(parsed.seriesKey || 'diamond-kings-2026').slice(0, MAX_SERIES_KEY_LENGTH);
 
         if (!messages.length) {
           return sendJson(res, 400, { error: 'At least one message is required.' });

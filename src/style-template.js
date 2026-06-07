@@ -51,7 +51,9 @@ const RELEASE_SERIES = {
       'Colt Emerson — 3rd Career Home Run',
       'Jose Siri — Grand Slam'
     ],
-    defaultPalette: ['white', 'silver', 'blue', 'gold']
+    defaultPalette: ['white', 'silver', 'blue', 'gold'],
+    relic: 'Set-specific premium memorabilia placement',
+    framing: 'Consistent set framing'
   },
   'diamond-kings-2026': {
     name: 'Diamond Kings 2026',
@@ -73,7 +75,9 @@ const RELEASE_SERIES = {
       'Luisangel Acuña',
       'Junior Caminero'
     ],
-    defaultPalette: ['gold', 'black', 'cream']
+    defaultPalette: ['gold', 'black', 'cream'],
+    relic: 'Real bat-barrel relic integrated into the painted bat barrel area',
+    framing: 'Consistent Diamond Kings frame treatment'
   },
   'future-stars-2026': {
     name: 'Future Stars 2026',
@@ -92,7 +96,9 @@ const RELEASE_SERIES = {
       'Gage Jump',
       'Taylor Pannell'
     ],
-    defaultPalette: ['white', 'silver', 'blue']
+    defaultPalette: ['white', 'silver', 'blue'],
+    relic: 'Set-specific premium memorabilia placement',
+    framing: 'Consistent set framing'
   },
   'front-office-icons-2026': {
     name: 'Front Office Icons 2026',
@@ -113,7 +119,9 @@ const RELEASE_SERIES = {
       'A. J. Preller',
       'Brian Cashman'
     ],
-    defaultPalette: ['white', 'platinum', 'silver']
+    defaultPalette: ['white', 'platinum', 'silver'],
+    relic: 'Set-specific premium memorabilia placement',
+    framing: 'Consistent set framing'
   },
   'pitching-excellence-2026': {
     name: 'Pitching Excellence 2026',
@@ -128,7 +136,9 @@ const RELEASE_SERIES = {
       'Mason Edwards',
       'Gage Jump'
     ],
-    defaultPalette: ['white', 'silver', 'ice-blue']
+    defaultPalette: ['white', 'silver', 'ice-blue'],
+    relic: 'Set-specific premium memorabilia placement',
+    framing: 'Consistent set framing'
   },
   'team-spotlight-2026': {
     name: 'Team Spotlight Cards',
@@ -145,7 +155,9 @@ const RELEASE_SERIES = {
       'Marlins hot streak (6/1–6/3 range)',
       'Reds comeback led by Will Benson'
     ],
-    defaultPalette: ['team-color-primary', 'team-color-secondary', 'white']
+    defaultPalette: ['team-color-primary', 'team-color-secondary', 'white'],
+    relic: 'Set-specific premium memorabilia placement',
+    framing: 'Consistent set framing'
   }
 };
 
@@ -172,10 +184,10 @@ function buildCardSkeleton(subjectName, history = [], seriesKey = 'diamond-kings
     set: series.name,
     styleAnchors: series.styleAnchors,
     palette: paletteForPlayer(subjectName, seriesKey),
-    relic: seriesKey === 'diamond-kings-2026' ? 'Real bat-barrel relic integrated into the painted bat barrel area' : 'Set-specific premium memorabilia placement',
+    relic: series.relic,
     signature: 'Blue ink on-card style signature',
     numbering: 'Foil 1/1 on front, card number on back only',
-    framing: seriesKey === 'diamond-kings-2026' ? 'Consistent Diamond Kings frame treatment' : 'Consistent set framing',
+    framing: series.framing,
     conversationContext: history.map((m) => `${m.role}: ${m.content}`)
   };
 }
