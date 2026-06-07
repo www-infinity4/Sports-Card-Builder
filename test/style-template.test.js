@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const {
   DIAMOND_KINGS_ANCHORS,
   STARTER_WAVE,
-  paletteForPlayer,
+  paletteForSubject,
   buildCardSkeleton,
   buildGeminiPrompt,
   getReleasePlan
@@ -14,9 +14,9 @@ test('diamond kings anchors include bat-barrel relic integration', () => {
   assert.ok(DIAMOND_KINGS_ANCHORS.includes('Bat-barrel relic integrated into the barrel'));
 });
 
-test('player palettes are fixed and case-insensitive', () => {
-  assert.deepEqual(paletteForPlayer('Albies', 'diamond-kings-2026'), ['blue', 'purple', 'yellow', 'white', 'green']);
-  assert.deepEqual(paletteForPlayer('Unknown', 'topps-now-2026'), ['white', 'silver', 'blue', 'gold']);
+test('subject palettes are fixed and case-insensitive', () => {
+  assert.deepEqual(paletteForSubject('Albies', 'diamond-kings-2026'), ['blue', 'purple', 'yellow', 'white', 'green']);
+  assert.deepEqual(paletteForSubject('Unknown', 'topps-now-2026'), ['white', 'silver', 'blue', 'gold']);
 });
 
 test('prompt includes full transcript and chosen series', () => {

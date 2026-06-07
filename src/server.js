@@ -64,7 +64,7 @@ const server = http.createServer(async (req, res) => {
               }))
           : [];
 
-        const subjectName = String(parsed.subjectName || parsed.playerName || 'Featured Card').slice(0, MAX_SUBJECT_LENGTH);
+        const subjectName = String(parsed.subjectName || 'Featured Card').slice(0, MAX_SUBJECT_LENGTH);
         const seriesKey = String(parsed.seriesKey || 'diamond-kings-2026').slice(0, MAX_SERIES_KEY_LENGTH);
 
         if (!messages.length) {

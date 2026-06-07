@@ -3,16 +3,30 @@ const { buildCardSkeleton, buildGeminiPrompt } = require('./style-template');
 function parseJsonFromText(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return null;
+
   try {
     return JSON.parse(trimmed);
   } catch (_) {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
+    for (let start = 0; start < trimmed.length; start += 1) {
+      if (trimmed[start] !== '{') continue;
+
+      let depth = 0;
+      for (let end = start; end < trimmed.length; end += 1) {
+        if (trimmed[end] === '{') depth += 1;
+        if (trimmed[end] === '}') depth -= 1;
+
+        if (depth === 0) {
+          const candidate = trimmed.slice(start, end + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch {
+            break;
+          }
+        }
+      }
     }
+
+    return null;
   }
 }
 

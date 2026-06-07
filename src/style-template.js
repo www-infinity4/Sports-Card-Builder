@@ -167,9 +167,9 @@ const STARTER_WAVE = [
   'Orioles 6-Run First Inning Team Spotlight'
 ];
 
-function paletteForPlayer(playerName = '', seriesKey = 'diamond-kings-2026') {
+function paletteForSubject(subjectName = '', seriesKey = 'diamond-kings-2026') {
   const series = RELEASE_SERIES[seriesKey] || RELEASE_SERIES['diamond-kings-2026'];
-  const key = String(playerName).trim().toLowerCase();
+  const key = String(subjectName).trim().toLowerCase();
   return PLAYER_PALETTES[key] || series.defaultPalette;
 }
 
@@ -183,7 +183,7 @@ function buildCardSkeleton(subjectName, history = [], seriesKey = 'diamond-kings
     subject: subjectName,
     set: series.name,
     styleAnchors: series.styleAnchors,
-    palette: paletteForPlayer(subjectName, seriesKey),
+    palette: paletteForSubject(subjectName, seriesKey),
     relic: series.relic,
     signature: 'Blue ink on-card style signature',
     numbering: 'Foil 1/1 on front, card number on back only',
@@ -233,7 +233,7 @@ module.exports = {
   PLAYER_PALETTES,
   RELEASE_SERIES,
   STARTER_WAVE,
-  paletteForPlayer,
+  paletteForSubject,
   buildCardSkeleton,
   buildGeminiPrompt,
   getReleasePlan
