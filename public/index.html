@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sports Card Builder</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; max-width: 1000px; }
+      textarea { width: 100%; min-height: 100px; }
+      pre { background: #111; color: #fff; padding: 1rem; border-radius: 8px; overflow: auto; }
+      input { width: 100%; }
+      .row { margin-bottom: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Sports Card Builder (Gemini)</h1>
+    <div class="row">
+      <label for="series">Series</label>
+      <select id="series"></select>
+    </div>
+    <div class="row">
+      <label for="subject">Card Subject</label>
+      <input id="subject" value="Dave Stieb - Most Underrated Pitcher of the 1980s" />
+    </div>
+    <div class="row">
+      <label for="message">Message to AI</label>
+      <textarea id="message" placeholder="Describe what you want on the card..."></textarea>
+    </div>
+    <button id="send">Generate Card</button>
+
+    <h2>Starter Wave</h2>
+    <pre id="starter"></pre>
+
+    <h2>Chat</h2>
+    <pre id="chat"></pre>
+
+    <h2>Generated Card JSON</h2>
+    <pre id="card"></pre>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
