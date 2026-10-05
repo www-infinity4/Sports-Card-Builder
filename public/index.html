@@ -3,55 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sports Card Builder · Rogers AI</title>
+<title>Sports Card Builder · Oracle</title>
 <style>
-:root{--bg:#070b14;--panel:#111827;--line:#293551;--text:#f6f8ff;--muted:#a5b1cc;--accent:#8b6cff;--accent2:#51d2ff;--card-bg:#f5ecdc;--card-ink:#17120d;--card-border:#d9b86c;--name:#18120d;--foil:#f3dfb0}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#213268 0,#0a1020 40%,#05070c 100%);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif}.app{max-width:1200px;margin:auto;padding:18px}.hero{text-align:center;padding:10px 0 20px}.hero h1{margin:0;font-size:clamp(2rem,5vw,3.2rem)}.hero p{max-width:720px;margin:.65rem auto 0;color:var(--muted);line-height:1.5}.layout{display:grid;grid-template-columns:minmax(320px,430px) 1fr;gap:18px}@media(max-width:900px){.layout{grid-template-columns:1fr}}.panel{background:linear-gradient(180deg,#ffffff0a,#ffffff04);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:0 18px 50px #0006}.panel h2{margin:0 0 12px}.upload{border:2px dashed #526ab5;border-radius:18px;padding:18px;text-align:center;background:#4a76ff0d}.upload input{width:100%;margin-top:10px}.talk{margin-top:15px}.talk textarea{width:100%;min-height:150px;padding:14px;border:1px solid var(--line);border-radius:16px;background:#0b1328;color:#fff;font:inherit;line-height:1.5;resize:vertical}.quick{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.quick button{background:#ffffff0b;color:#dbe5ff;border:1px solid var(--line);padding:8px 10px;border-radius:999px;font:inherit;font-size:.82rem;cursor:pointer}.make{width:100%;border:0;border-radius:16px;padding:15px;background:linear-gradient(135deg,var(--accent),#537bff);color:white;font:inherit;font-weight:900;font-size:1rem;cursor:pointer}.make:disabled{opacity:.55}.status{min-height:22px;margin-top:10px;color:var(--muted);font-size:.9rem}.ai{margin-top:12px;padding:13px;border-radius:15px;background:#0b1328;border:1px solid var(--line);color:#dfe7ff;white-space:pre-wrap;line-height:1.45;display:none}.stage{min-height:690px;display:grid;place-items:center;padding:22px;border-radius:18px;border:1px solid var(--line);background:radial-gradient(circle at 80% 10%,#8c6cff25,transparent 28%),radial-gradient(circle at 10% 90%,#51d2ff18,transparent 30%),#09101e}.card{width:min(100%,470px);aspect-ratio:2.5/3.5;background:linear-gradient(145deg,#ffffff66,#ffffff0c),var(--card-bg);border:6px solid var(--card-border);border-radius:24px;position:relative;overflow:hidden;box-shadow:0 28px 70px #0009;color:var(--card-ink)}.card:before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#fff5,transparent 28%),repeating-linear-gradient(90deg,#fff2 0 2px,transparent 2px 6px);opacity:.45}.inner{position:relative;z-index:1;height:100%;display:grid;grid-template-rows:auto auto 1fr auto;gap:11px;padding:17px}.topline{display:flex;justify-content:space-between;gap:10px}.set{font-size:.8rem;letter-spacing:.13em;text-transform:uppercase;font-weight:900}.year{padding:6px 9px;border-radius:10px;background:#ffffff88;font-weight:900;font-size:.78rem}.player{font-size:clamp(1.55rem,4vw,2.25rem);font-weight:950;line-height:1;margin:0}.sub{font-size:.9rem;font-weight:750;opacity:.75;margin-top:5px}.art{position:relative;overflow:hidden;border-radius:18px;border:4px solid #ffffff99;background:linear-gradient(135deg,#fff8,#ffffff11)}.art img{width:100%;height:100%;object-fit:cover;display:none}.placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:28px;font-weight:850;line-height:1.5;color:#473b2b}.ribbon{position:absolute;left:12px;bottom:12px;padding:8px 11px;border-radius:10px;background:#111d;color:#fff;font-size:.78rem;font-weight:900}.foil{position:absolute;right:11px;top:11px;padding:7px 10px;border-radius:999px;background:linear-gradient(135deg,var(--foil),#fff4c9,#cfa555);font-size:.72rem;font-weight:950;z-index:3}.nameplate{background:var(--name);color:#fff;border-radius:15px;padding:12px 13px;display:flex;justify-content:space-between;gap:12px;align-items:center;font-weight:900}.nameplate small{display:block;color:#ffffffb9;font-size:.78rem;margin-top:2px}.hint{color:var(--muted);font-size:.85rem;line-height:1.4}.preview-title{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.preview-title p{margin:0;color:var(--muted)}
+:root{--ink:#151515;--muted:#6c7480;--line:#dfe4ea;--silver:#edf1f5;--gold:#d8bd76;--glow:rgba(255,255,255,.94)}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;color:var(--ink);background:radial-gradient(circle at 50% -10%,#ffffff 0,#f6f8fb 42%,#edf1f5 100%);min-height:100vh}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.98),transparent 25%),radial-gradient(circle at 80% 14%,rgba(236,240,246,.85),transparent 24%),linear-gradient(120deg,transparent 0 44%,rgba(255,255,255,.78) 49%,transparent 54%);mix-blend-mode:screen}
+.app{max-width:1180px;margin:auto;padding:22px 16px 42px}.hero{text-align:center;padding:20px 8px 24px}.eyebrow{display:inline-block;padding:7px 12px;border:1px solid #d9dee5;border-radius:999px;background:#ffffffc9;box-shadow:0 8px 30px #b8c1cf33;font-size:.78rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase;color:#6c7480}.hero h1{margin:14px 0 8px;font-size:clamp(2.2rem,6vw,4rem);line-height:.98;letter-spacing:-.035em}.hero p{margin:0 auto;max-width:700px;color:var(--muted);font-size:1.02rem;line-height:1.55}
+.shell{display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:18px}@media(max-width:900px){.shell{grid-template-columns:1fr}}
+.panel{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.96));border:1px solid #dce2e8;border-radius:28px;padding:20px;box-shadow:0 24px 70px rgba(64,77,96,.12),inset 0 1px 0 #fff}.panel:after{content:"";position:absolute;inset:1px;border-radius:27px;pointer-events:none;box-shadow:inset 0 0 26px rgba(255,255,255,.85)}
+.step{font-size:.78rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#8a929e;margin-bottom:6px}.panel h2{margin:0 0 13px;font-size:1.25rem}.upload{border:1.5px dashed #bfc8d2;border-radius:22px;padding:18px;background:linear-gradient(145deg,#fff,#f4f7fa);text-align:center}.upload input{width:100%;margin-top:11px}.hint{color:var(--muted);font-size:.86rem;line-height:1.45}.talk{margin-top:18px}.talk textarea{width:100%;min-height:160px;border:1px solid #d7dde4;background:#fff;color:#151515;border-radius:20px;padding:15px;font:inherit;line-height:1.5;resize:vertical;box-shadow:inset 0 2px 8px #d7dde433}.talk textarea:focus{outline:none;border-color:#b3bdc8;box-shadow:0 0 0 4px #e7ebf0,inset 0 2px 8px #d7dde433}.make{width:100%;margin-top:12px;border:1px solid #c8cfd8;border-radius:18px;padding:15px;background:linear-gradient(135deg,#ffffff,#e8edf3 55%,#fff);color:#161616;font:inherit;font-size:1rem;font-weight:950;letter-spacing:.01em;box-shadow:0 10px 24px #7d889622,inset 0 1px 0 #fff;cursor:pointer}.make:hover{filter:brightness(1.02)}.make:disabled{opacity:.55;cursor:default}.status{min-height:22px;margin-top:10px;color:var(--muted);font-size:.88rem}.status strong{color:#20252b}.oracle{margin-top:14px;padding:12px 13px;border-radius:17px;background:linear-gradient(145deg,#fbfcfe,#eef2f6);border:1px solid #dce2e8;font-size:.87rem;line-height:1.45;color:#59616d}
+.previewHead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}.previewHead p{margin:0;color:var(--muted);font-size:.9rem}.canvas{min-height:650px;display:grid;place-items:center;border-radius:24px;background:radial-gradient(circle at 50% 30%,#fff 0,#f7f9fb 42%,#edf1f5 100%);border:1px solid #dde3e9;overflow:hidden;padding:18px}.result{width:min(100%,560px);display:grid;place-items:center;position:relative}.result img{display:block;max-width:100%;max-height:720px;border-radius:18px;box-shadow:0 28px 70px rgba(58,66,76,.18),0 0 0 1px #d9dfe5;background:#fff}.empty{min-height:500px;width:min(100%,520px);display:grid;place-items:center;text-align:center;padding:34px;border-radius:22px;border:1px solid #dfe4e9;background:linear-gradient(145deg,#ffffff,#f4f7fa);color:#7a838f;line-height:1.5}.empty strong{display:block;color:#23282e;font-size:1.15rem;margin-bottom:7px}.meta{margin-top:12px;text-align:center;color:#7d8590;font-size:.82rem}
 </style>
 </head>
 <body>
 <div class="app">
   <header class="hero">
+    <span class="eyebrow">Oracle Card Studio</span>
     <h1>Sports Card Builder</h1>
-    <p>Upload your photo. Tell Rogers what kind of card you want. Rogers chooses the styling and builds the card around your image.</p>
+    <p>Upload one image. Write one quick sentence about the card you want. Rogers creates the image prompt, then FLUX renders the finished card from your photo.</p>
   </header>
-  <div class="layout">
+
+  <div class="shell">
     <section class="panel">
-      <h2>1. Upload your image</h2>
+      <div class="step">Step 1</div>
+      <h2>Upload your image</h2>
       <div class="upload">
-        <div class="hint">Pick a player, person, coin, car, or anything you want turned into a collectible card.</div>
+        <div class="hint">Use a clear photo from your phone. It will be resized privately in your browser before generation.</div>
         <input id="photo" type="file" accept="image/*">
       </div>
 
       <div class="talk">
-        <h2>2. Tell Rogers what you want</h2>
-        <textarea id="message" placeholder="Example: Make this look like a wild 1989-style Upper Deck rookie card with silver foil and a blue autograph."></textarea>
-        <div class="quick">
-          <button data-prompt="Make it look like a classic 1980s Fleer card.">80s Fleer</button>
-          <button data-prompt="Make it a bold Donruss-style card with vintage color and strong borders.">Donruss</button>
-          <button data-prompt="Make it feel like a premium Upper Deck card with glossy silver details.">Upper Deck</button>
-          <button data-prompt="Make it a chrome refractor prospect card with a premium modern finish.">Chrome</button>
-          <button data-prompt="Make it a painted Diamond Kings-style collector card.">Diamond Kings</button>
-        </div>
-        <button id="make" class="make">Make My Card</button>
-        <div id="status" class="status">Upload an image and tell Rogers what you want.</div>
-        <div id="aiReply" class="ai"></div>
+        <div class="step">Step 2</div>
+        <h2>Describe the card</h2>
+        <textarea id="message" placeholder="Example: Make this a beautiful late-80s premium rookie card, silver foil border, blue autograph, dramatic stadium lighting."></textarea>
+        <button id="make" class="make">Create My Card</button>
+        <div id="status" class="status">Upload an image and describe the card you want.</div>
+        <div class="oracle">Rogers writes the production prompt automatically. The image generator receives your resized reference image plus that prompt, so you do not have to fill out card fields or write technical prompting.</div>
       </div>
     </section>
 
     <section class="panel">
-      <div class="preview-title"><div><h2>Your Card</h2><p>Rogers changes the design; your uploaded image stays the focal point.</p></div></div>
-      <div class="stage">
-        <div class="card">
-          <div id="foil" class="foil">1/1</div>
-          <div class="inner">
-            <div class="topline"><div id="setName" class="set">Collector Edition</div><div id="year" class="year">2026</div></div>
-            <div><h3 id="player" class="player">Your Card</h3><div id="subtitle" class="sub">Upload a photo and describe the design.</div></div>
-            <div class="art"><img id="previewImage" alt=""><div id="placeholder" class="placeholder">Your uploaded image will appear here.</div><div id="ribbon" class="ribbon">Rogers AI</div></div>
-            <div class="nameplate"><div><div id="plateName">Your Card</div><small id="plateSub">Custom Sports Card</small></div><div id="number">#001</div></div>
-          </div>
+      <div class="previewHead">
+        <div><div class="step">Result</div><h2 style="margin:0">Generated Card</h2></div>
+        <p>FLUX.2 reference-image generation</p>
+      </div>
+      <div class="canvas">
+        <div class="result">
+          <div id="empty" class="empty"><div><strong>Your card will appear here.</strong>Upload a photo, type one short description, and press Create My Card.</div></div>
+          <img id="resultImage" alt="Generated collectible card" style="display:none">
         </div>
       </div>
+      <div id="meta" class="meta"></div>
     </section>
   </div>
 </div>
