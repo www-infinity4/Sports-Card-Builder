@@ -1,12 +1,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { generateCardWithGemini } = require('./gemini');
+const { generateCardWithRogers } = require('./gemini');
 const { getReleasePlan } = require('./style-template');
 
 const PORT = process.env.PORT || 3000;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MAX_REQUEST_BODY_BYTES = 1_000_000;
 const MAX_MESSAGE_LENGTH = 3000;
@@ -71,9 +69,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'At least one message is required.' });
         }
 
-        const result = await generateCardWithGemini({
-          apiKey: GEMINI_API_KEY,
-          model: GEMINI_MODEL,
+        const result = await generateCardWithRogers({
           messages,
           subjectName,
           seriesKey
