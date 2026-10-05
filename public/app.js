@@ -36,7 +36,7 @@ function stage(name,state,note=''){
  if(note)$('buildNote').textContent=note;
 }
 
-async function resizeImage(file,max=900){
+async function resizeImage(file,max=512){
  const bitmap=await createImageBitmap(file);
  const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
  const w=Math.max(1,Math.round(bitmap.width*scale)),h=Math.max(1,Math.round(bitmap.height*scale));
@@ -164,7 +164,7 @@ async function createCard(){
   stage('render','done');
 
   stage('finish','active','Applying final production marking…');
-  const finished=await stampProductLine(out.dataURI);
+  const finished=out.mode==='server-composite'?out.dataURI:await stampProductLine(out.dataURI);
   $('resultImage').src=finished;
   await new Promise((resolve,reject)=>{if($('resultImage').complete&&$('resultImage').naturalWidth){resolve();return}$('resultImage').onload=resolve;$('resultImage').onerror=()=>reject(new Error('image_display_failed'))});
   stage('finish','done','Card ready.');
