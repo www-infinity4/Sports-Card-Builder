@@ -88,6 +88,30 @@ The final image must be a finished premium fantasy sports/trading card, portrait
  return String(d.output||d.output_text||d.answer||'').trim();
 }
 
+async function compositeShell(shellDataURI,photoBlob){
+ const shell=new Image();shell.src=shellDataURI;
+ await new Promise((resolve,reject)=>{shell.onload=resolve;shell.onerror=()=>reject(new Error('shell_load_failed'))});
+ const photo=await createImageBitmap(photoBlob);
+ const canvas=document.createElement('canvas');canvas.width=shell.naturalWidth;canvas.height=shell.naturalHeight;
+ const ctx=canvas.getContext('2d');ctx.drawImage(shell,0,0);
+ const x=Math.round(canvas.width*.12),y=Math.round(canvas.height*.16),w=Math.round(canvas.width*.76),h=Math.round(canvas.height*.66);
+ const r=Math.max(18,Math.round(canvas.width*.025));
+ ctx.save();
+ ctx.beginPath();
+ ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+ ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+ ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+ ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.clip();
+ const scale=Math.max(w/photo.width,h/photo.height);
+ const dw=photo.width*scale,dh=photo.height*scale;
+ ctx.drawImage(photo,x+(w-dw)/2,y+(h-dh)/2,dw,dh);
+ ctx.restore();
+ if(photo.close)photo.close();
+ const edge=ctx.createLinearGradient(x,y,x+w,y+h);edge.addColorStop(0,'rgba(255,255,255,.75)');edge.addColorStop(.5,'rgba(255,255,255,.08)');edge.addColorStop(1,'rgba(10,20,30,.45)');
+ ctx.strokeStyle=edge;ctx.lineWidth=Math.max(4,Math.round(canvas.width*.007));ctx.strokeRect(x,y,w,h);
+ return canvas.toDataURL('image/jpeg',.94);
+}
+
 async function stampProductLine(dataURI){
  const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('stamp_load_failed'))});
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
@@ -125,11 +149,13 @@ async function createCard(){
   let prompt=await designPrompt(description,false);
   stage('plan','done');
   stage('render','active','Rendering the card artwork…');
+  $('buildNote').textContent='Rendering artwork with automatic recovery enabled…';
   const out=await renderCard(blob,prompt);
   stage('render','done');
-  stage('finish','active','Finishing your card…');
+  stage('finish','active',out.mode==='shell-fallback'?'Integrating your photo into the finished card…':'Finishing your card…');
   if(!out?.dataURI)throw new Error('empty_image');
-  const finished=await stampProductLine(out.dataURI);
+  const artwork=out.mode==='shell-fallback'?await compositeShell(out.dataURI,blob):out.dataURI;
+  const finished=await stampProductLine(artwork);
   $('resultImage').src=finished;
   await new Promise((resolve,reject)=>{if($('resultImage').complete&&$('resultImage').naturalWidth){resolve();return}$('resultImage').onload=resolve;$('resultImage').onerror=()=>reject(new Error('image_display_failed'))});
   stage('finish','done','Card ready.');
