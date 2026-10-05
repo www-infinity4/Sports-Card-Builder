@@ -24,6 +24,20 @@ $('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))$('pho
 ['dragleave','drop'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#d7dde4'}));
 $('composer').addEventListener('drop',e=>{const f=[...(e.dataTransfer?.files||[])].find(x=>x.type.startsWith('image/'));if(f)setPhoto(f)});
 
+function resetMonitor(){
+ document.querySelectorAll('.buildStep').forEach(el=>{el.classList.remove('active','done','error');el.querySelector('.state').textContent='Waiting'});
+ $('buildNote').textContent='Starting…';
+}
+function showMonitor(){
+ $('empty').style.display='none';$('resultImage').style.display='none';$('buildMonitor').style.display='block';resetMonitor();
+}
+function stage(name,state,note=''){
+ const el=document.querySelector('[data-stage="'+name+'"]');if(!el)return;
+ el.classList.remove('active','done','error');el.classList.add(state);
+ el.querySelector('.state').textContent=state==='active'?'Working':state==='done'?'Done':'Check';
+ if(note)$('buildNote').textContent=note;
+}
+
 async function resizeImage(file,max=500){
  const bitmap=await createImageBitmap(file);
  const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
@@ -89,26 +103,40 @@ async function createCard(){
  const description=$('message').value.trim();
  if(!sourceFile){$('status').innerHTML='<strong>Choose a photo first.</strong>';return}
  if(!description){$('status').innerHTML='<strong>Describe the card you want.</strong>';return}
- $('make').disabled=true;$('make').textContent='Creating…';$('status').textContent='Designing your card…';
+ $('make').disabled=true;$('make').textContent='Creating…';$('status').textContent='Designing your card…';showMonitor();
  try{
+  stage('prepare','active','Preparing your photo…');
   const blob=await resizeImage(sourceFile);
+  stage('prepare','done');
+  stage('plan','active','Building the card design…');
   let prompt=await designPrompt(description,false);
+  stage('plan','done');
+  stage('render','active','Rendering the card artwork…');
   let out;
   try{out=await renderCard(blob,prompt)}
   catch(e){
    if(e.code!=='FLAGGED')throw e;
-   $('status').textContent='Refining the design…';
+   $('buildNote').textContent='First render was rejected. Rebuilding the design…';
+   stage('render','active');
    prompt=await designPrompt(description,true);
    out=await renderCard(blob,prompt);
   }
-  $('resultImage').src=out.dataURI;$('resultImage').style.display='block';$('empty').style.display='none';$('newCard').style.display='inline-block';
+  stage('render','done');
+  stage('finish','active','Finishing your card…');
+  if(!out?.dataURI)throw new Error('empty_image');
+  $('resultImage').src=out.dataURI;
+  await new Promise((resolve,reject)=>{if($('resultImage').complete&&$('resultImage').naturalWidth){resolve();return}$('resultImage').onload=resolve;$('resultImage').onerror=()=>reject(new Error('image_display_failed'))});
+  stage('finish','done','Card ready.');
+  $('buildMonitor').style.display='none';$('resultImage').style.display='block';$('empty').style.display='none';$('newCard').style.display='inline-block';
   $('status').innerHTML='<strong>Card created.</strong>';
  }catch(e){
+  const active=document.querySelector('.buildStep.active');if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
+  $('buildNote').textContent='Build stopped here. You can retry without losing your photo or description.';
   const flagged=e.code==='FLAGGED'||String(e.message||'').includes('3030');
-  $('status').innerHTML=flagged?'<strong>This version could not be rendered.</strong> Try a different photo or a shorter description.':'<strong>Could not create the card.</strong> Please try again.';
+  $('status').innerHTML=flagged?'<strong>This version could not be rendered.</strong> Try again or shorten the description.':'<strong>Build stopped.</strong> Please retry.';
  }finally{
   $('make').disabled=false;$('make').textContent='Create Card';
  }
 }
 $('make').addEventListener('click',createCard);
-$('newCard').addEventListener('click',()=>{$('resultImage').style.display='none';$('empty').style.display='grid';$('newCard').style.display='none';$('status').textContent='Ready for another card.';});
+$('newCard').addEventListener('click',()=>{$('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('newCard').style.display='none';$('status').textContent='Ready for another card.';});
