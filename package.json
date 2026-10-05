@@ -1,7 +1,7 @@
 {
   "name": "sports-card-builder",
   "version": "1.0.0",
-  "description": "Gemini-powered baseball card builder with multi-series release support",
+  "description": "Rogers-AI-powered baseball card builder with multi-series release support",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
