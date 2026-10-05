@@ -1,79 +1,64 @@
 const { buildCardSkeleton, buildGeminiPrompt } = require('./style-template');
 
+const ROGERS_AI_URL = process.env.ROGERS_AI_URL || 'https://infinity-rogers.marvaseater.workers.dev/v1/chat';
+
 function parseJsonFromText(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return null;
-
-  try {
-    return JSON.parse(trimmed);
-  } catch (_) {
-    for (let start = 0; start < trimmed.length; start += 1) {
-      if (trimmed[start] !== '{') continue;
-
-      let depth = 0;
-      for (let end = start; end < trimmed.length; end += 1) {
-        if (trimmed[end] === '{') depth += 1;
-        if (trimmed[end] === '}') depth -= 1;
-
-        if (depth === 0) {
-          const candidate = trimmed.slice(start, end + 1);
-          try {
-            return JSON.parse(candidate);
-          } catch {
-            break;
-          }
-        }
+  try { return JSON.parse(trimmed); } catch (_) {}
+  for (let start = 0; start < trimmed.length; start += 1) {
+    if (trimmed[start] !== '{') continue;
+    let depth = 0;
+    for (let end = start; end < trimmed.length; end += 1) {
+      if (trimmed[end] === '{') depth += 1;
+      if (trimmed[end] === '}') depth -= 1;
+      if (depth === 0) {
+        try { return JSON.parse(trimmed.slice(start, end + 1)); }
+        catch { break; }
       }
     }
-
-    return null;
   }
+  return null;
 }
 
-async function generateCardWithGemini({ apiKey, model, messages, subjectName, seriesKey }) {
-  if (!apiKey) {
-    const card = buildCardSkeleton(subjectName, messages, seriesKey);
-    return {
-      reply: `Gemini key missing, returning template-safe draft for ${subjectName}.`,
-      card
-    };
-  }
-
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+async function generateCardWithRogers({ messages, subjectName, seriesKey }) {
   const prompt = buildGeminiPrompt(messages, subjectName, seriesKey);
-
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.5 }
-    })
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Gemini request failed: ${res.status} ${errorText}`);
-  }
-
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const parsed = parseJsonFromText(text);
-
-  if (!parsed?.card) {
+  try {
+    const res = await fetch(ROGERS_AI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        input: prompt,
+        context: {
+          application: 'Sports Card Builder',
+          task: 'sports-card-generation',
+          subjectName,
+          seriesKey
+        }
+      }),
+      signal: AbortSignal.timeout(18000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || ('Rogers AI HTTP ' + res.status));
+    const text = String(data.output || data.output_text || data.answer || '').trim();
+    const parsed = parseJsonFromText(text);
+    if (parsed?.card) {
+      parsed.card.styleAnchors = buildCardSkeleton(subjectName, [], seriesKey).styleAnchors;
+      return parsed;
+    }
+    const card = buildCardSkeleton(subjectName, messages, seriesKey);
+    return { reply: parsed?.reply || text || `Built a template-safe card draft for ${subjectName}.`, card };
+  } catch (error) {
     const card = buildCardSkeleton(subjectName, messages, seriesKey);
     return {
-      reply: parsed?.reply || `Built a template-safe card draft for ${subjectName}.`,
+      reply: `Rogers AI was unavailable, so a template-safe draft was built for ${subjectName}.`,
+      warning: String(error.message || error),
       card
     };
   }
-
-  // Enforce the selected set template so generated cards stay consistent across a release.
-  parsed.card.styleAnchors = buildCardSkeleton(subjectName, [], seriesKey).styleAnchors;
-  return parsed;
 }
 
 module.exports = {
-  generateCardWithGemini,
+  generateCardWithRogers,
   parseJsonFromText
 };
