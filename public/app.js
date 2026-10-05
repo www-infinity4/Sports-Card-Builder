@@ -1,7 +1,9 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
 const BUILDER=window.OracleBuilderTools||null;
+const ABILITY_ROUTER=window.OracleAbilityRouter||null;
 let lastToolPlan=null;
+let lastAbilityRoute=null;
 
 async function fetchWithTimeout(url,options={},timeoutMs=8000){
  const controller=new AbortController();
@@ -83,7 +85,8 @@ async function generateFromPlan(kind='single',count=1){
  }
  for(let i=0;i<count;i++){
   stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering the card…');
-  const prompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
+  const basePrompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
+  const prompt=ABILITY_ROUTER&&lastToolPlan?basePrompt+'\n\n'+ABILITY_ROUTER.buildCapabilityNote({...lastToolPlan,mode:buildMode}):basePrompt;
   const out=await renderCard(lastBlob,prompt,lastDescription,lastReferenceBlob);
   stage('render','done');
   stage('finish','active','Finishing…');
@@ -523,6 +526,11 @@ async function renderCard(blob,prompt,description,designBlob=null){
  if(designBlob)form.append('design_reference',designBlob,'design-reference.jpg');
  form.append('prompt',prompt);
  form.append('request',description);
+ if(ABILITY_ROUTER&&lastToolPlan){
+  lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
+  form.append('ability_route',JSON.stringify(lastAbilityRoute));
+  form.append('build_spec',JSON.stringify(lastToolPlan));
+ }
  const r=await fetch(SERVICE+'/v1/image',{method:'POST',body:form});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){const e=new Error(String(d.error||'generation_failed'));e.code=String(d.error||'');throw e}
@@ -552,7 +560,8 @@ async function createCard(count=1,mode='original'){
    lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
   }
   renderSmartIdeas(lastPlan);
-  stage('plan','done',lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
+  if(ABILITY_ROUTER&&lastToolPlan)lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
+  stage('plan','done',lastAbilityRoute?'Ability route locked: '+lastAbilityRoute.abilities.map(a=>a.engine).join(' → '):lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
