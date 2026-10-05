@@ -71,22 +71,35 @@ function expandBrandLanguage(description){
 
 async function designPrompt(description,simplified=false){
  const translated=expandBrandLanguage(description);
- const footer='Include a tiny, tasteful production line integrated along the lower card edge or back-style footer: “Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC.” Keep it legible but visually subordinate.';
  const brief=simplified
- ? `Create a premium fantasy collectible trading card from reference image 0. Preserve the recognizable subject. User direction: ${translated}. The card may use any appropriate color palette; do not force white. Use sophisticated print design, coherent borders or full-bleed treatment as appropriate, refined lighting, and premium materials. No copied brand logos or exact trademark graphics. ${footer}`
+ ? `Create a premium fantasy collectible trading card from reference image 0. Preserve the recognizable subject. User direction: ${translated}. The card may use any appropriate color palette; do not force white. Use sophisticated print design, coherent borders or full-bleed treatment as appropriate, refined lighting, and premium materials. No copied brand logos, no exact trademark graphics, no text, no watermarks.`
  : `You are an expert collectible-card art director. Convert the user's idea into one polished image-generation prompt for reference image 0.
 
 User idea: ${translated}
 
 Return ONLY the final prompt.
 
-The final image must be a finished premium fantasy sports/trading card, portrait orientation, with the uploaded subject clearly recognizable. Match the requested era and card aesthetic faithfully through composition, borders, color, print texture, photography treatment, foil, framing and typography zones. The card does NOT need to be white; choose the palette and materials that fit the requested style. Do not render a website, mockup, tabletop photo, or empty template. Do not reproduce protected logos or exact trademark graphics. Avoid novelty clip-art, fake plastic UI, duplicated subjects, malformed anatomy, watermarks, and nonsense decorative text. ${footer}`;
+The final image must be a finished premium fantasy sports/trading card, portrait orientation, with the uploaded subject clearly recognizable. Match the requested era and card aesthetic faithfully through composition, borders, color, print texture, photography treatment, foil and framing. The card does NOT need to be white; choose the palette and materials that fit the requested style. Do not render a website, mockup, tabletop photo, or empty template. Do not reproduce protected logos or exact trademark graphics. Avoid novelty clip-art, fake plastic UI, duplicated subjects, malformed anatomy, watermarks, signatures, or generated text. Leave a subtle clean lower edge for final production marking.`;
 
  if(simplified)return brief;
  const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input:brief,context:{application:'Oracle Card Studio',task:'card-art-direction'}})});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('design_unavailable');
  return String(d.output||d.output_text||d.answer||'').trim();
+}
+
+async function stampProductLine(dataURI){
+ const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('stamp_load_failed'))});
+ const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+ const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+ const h=Math.max(26,Math.round(canvas.height*.035));
+ const g=ctx.createLinearGradient(0,canvas.height-h,0,canvas.height);g.addColorStop(0,'rgba(8,12,18,0.12)');g.addColorStop(1,'rgba(8,12,18,0.68)');
+ ctx.fillStyle=g;ctx.fillRect(0,canvas.height-h,canvas.width,h);
+ const text='Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC';
+ ctx.font=Math.max(10,Math.round(canvas.width*.018))+'px Arial, sans-serif';
+ ctx.fillStyle='rgba(255,255,255,.92)';ctx.textAlign='center';ctx.textBaseline='middle';
+ ctx.fillText(text,canvas.width/2,canvas.height-h/2,canvas.width-Math.round(canvas.width*.04));
+ return canvas.toDataURL('image/jpeg',.94);
 }
 
 async function renderCard(blob,prompt){
@@ -112,19 +125,12 @@ async function createCard(){
   let prompt=await designPrompt(description,false);
   stage('plan','done');
   stage('render','active','Rendering the card artwork…');
-  let out;
-  try{out=await renderCard(blob,prompt)}
-  catch(e){
-   if(e.code!=='FLAGGED')throw e;
-   $('buildNote').textContent='First render was rejected. Rebuilding the design…';
-   stage('render','active');
-   prompt=await designPrompt(description,true);
-   out=await renderCard(blob,prompt);
-  }
+  const out=await renderCard(blob,prompt);
   stage('render','done');
   stage('finish','active','Finishing your card…');
   if(!out?.dataURI)throw new Error('empty_image');
-  $('resultImage').src=out.dataURI;
+  const finished=await stampProductLine(out.dataURI);
+  $('resultImage').src=finished;
   await new Promise((resolve,reject)=>{if($('resultImage').complete&&$('resultImage').naturalWidth){resolve();return}$('resultImage').onload=resolve;$('resultImage').onerror=()=>reject(new Error('image_display_failed'))});
   stage('finish','done','Card ready.');
   $('buildMonitor').style.display='none';$('resultImage').style.display='block';$('empty').style.display='none';$('newCard').style.display='inline-block';
