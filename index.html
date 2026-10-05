@@ -36,9 +36,9 @@ button,textarea{font:inherit}
 .sectionLabel{font-size:.73rem;font-weight:950;letter-spacing:.15em;text-transform:uppercase;color:#8c96a1;margin-bottom:6px}
 .panel h2{margin:0 0 14px;font-size:1.35rem;letter-spacing:-.02em}
 .composer{border:1px solid #cdd7e1;border-radius:26px;background:linear-gradient(180deg,#fbfdff,#edf4f9);box-shadow:0 15px 34px rgba(70,84,98,.10),inset 0 1px 0 #fff;padding:14px}
-.composeTop{display:grid;grid-template-columns:112px 112px 1fr;gap:12px;align-items:start}
-@media(max-width:520px){.composeTop{grid-template-columns:96px 96px 1fr;gap:9px}}
-@media(max-width:400px){.composeTop{grid-template-columns:92px 92px 1fr;gap:8px}}
+.composeTop{display:grid;grid-template-columns:112px 112px;gap:12px;align-items:start;justify-content:start}
+@media(max-width:520px){.composeTop{grid-template-columns:96px 96px;gap:9px}}
+@media(max-width:400px){.composeTop{grid-template-columns:92px 92px;gap:8px}}
 .tileLabel{position:absolute;left:8px;bottom:8px;padding:5px 7px;border-radius:999px;background:rgba(15,20,27,.72);color:#fff;font-size:.66rem;font-weight:900;backdrop-filter:blur(8px);z-index:2}
 .photoTile{position:relative;aspect-ratio:1/1;border-radius:24px;border:1px solid #d2dbe4;background:
  linear-gradient(145deg,#e9f1f7,#d9e6f0);display:grid;place-items:center;overflow:hidden;cursor:pointer;
@@ -48,9 +48,9 @@ button,textarea{font:inherit}
 .photoEmpty .plus{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#f8fbfe;border:1px solid #cbd5df;font-size:1.25rem;line-height:1}
 .photoControls{display:none;position:absolute;right:7px;top:7px;gap:6px;z-index:2}
 .photoControls button{border:0;border-radius:999px;background:rgba(15,20,27,.78);color:#fff;padding:7px 9px;font-size:.7rem;font-weight:850;backdrop-filter:blur(10px);cursor:pointer}
-.promptWrap{min-width:0}
-.promptLabel{font-size:.75rem;font-weight:900;color:#778391;margin:2px 0 7px}
-textarea{width:100%;min-height:128px;border:0;outline:0;background:transparent;color:#14191f;resize:none;line-height:1.48;padding:0;font-size:1rem}
+.promptWrap{min-width:0;margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec}
+.promptLabel{font-size:.75rem;font-weight:900;color:#778391;margin:0 0 7px}
+textarea{width:100%;min-height:112px;border:0;outline:0;background:transparent;color:#14191f;resize:vertical;line-height:1.48;padding:0;font-size:1rem}
 textarea::placeholder{color:#7e8894;opacity:.82}
 .composerBottom{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec}.createGroup{display:flex;gap:8px;flex-wrap:wrap}.secondaryBtn{border:1px solid #c7d1da;border-radius:17px;padding:12px 14px;background:rgba(255,255,255,.62);color:#4f5b67;font-weight:900;cursor:pointer}.secondaryBtn:disabled{opacity:.5;cursor:default}
 .createBtn{border:1px solid #bec9d3;border-radius:17px;padding:13px 18px;background:
@@ -120,10 +120,10 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button id="removeReference" type="button">Remove</button>
       </div>
      </div>
-     <div class="promptWrap">
-      <div class="promptLabel">Tell Oracle what you want</div>
-      <textarea id="message" placeholder="White-border 1980s flagship baseball card, clean vintage layout, red team accents, classic rookie-card feel."></textarea>
-     </div>
+    </div>
+    <div class="promptWrap">
+     <div class="promptLabel">Tell Oracle what you want</div>
+     <textarea id="message" placeholder="White-border 1980s flagship baseball card, clean vintage layout, red team accents, classic rookie-card feel."></textarea>
     </div>
     <div class="composerBottom">
      <div class="createGroup">
