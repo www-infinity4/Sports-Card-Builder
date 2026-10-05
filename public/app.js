@@ -1,76 +1,87 @@
-const ROGERS='https://infinity-rogers.marvaseater.workers.dev';
+const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
 let sourceFile=null;
 
 $('photo').addEventListener('change',e=>{
  sourceFile=e.target.files?.[0]||null;
- $('status').textContent=sourceFile?'Image ready. Describe the card and press Create My Card.':'Upload an image and describe the card you want.';
+ if(!sourceFile){$('status').textContent='Ready when you are.';return}
+ const url=URL.createObjectURL(sourceFile);
+ $('thumb').src=url;$('thumb').style.display='block';$('thumbText').style.display='none';
+ $('status').textContent='Photo ready.';
 });
 
 async function resizeImage(file,max=500){
  const bitmap=await createImageBitmap(file);
  const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
- const w=Math.max(1,Math.round(bitmap.width*scale)),h=Math.max(1,Math.round(bitmap.height*scale));
+ const w=Math.max(1,Math.round(bitmap.width*scale));
+ const h=Math.max(1,Math.round(bitmap.height*scale));
  const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
- const ctx=canvas.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(bitmap,0,0,w,h);
+ const ctx=canvas.getContext('2d',{alpha:false});
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(bitmap,0,0,w,h);
  if(bitmap.close)bitmap.close();
- return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('Could not prepare image.')),'image/jpeg',.92));
+ return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('image_prepare_failed')),'image/jpeg',.9));
 }
 
-async function rogersPrompt(description){
- const input=`You are Rogers, the prompt director for Oracle Sports Card Studio.
-Turn the user's short request into one excellent production prompt for a high-end image generator that will receive the user's uploaded photograph as reference image 0.
+async function designPrompt(description,simplified=false){
+ const brief=simplified
+ ? `Create a tasteful premium collectible trading card from reference image 0. Preserve the main subject. Use a polished portrait card composition, refined borders, sophisticated lighting, subtle metallic details, clean areas for card typography, and professional print-design balance. No logos, no signatures, no brand marks, no copied text, no extra people, no distorted anatomy, no childish or novelty styling. User preference: ${description}`
+ : `You are an expert collectible-card art director. Convert the user's idea into one polished image-generation prompt for reference image 0.
 
-User request:
-${description}
+User idea: ${description}
 
-Write ONLY the final image-generation prompt, no explanation.
+Return ONLY the final prompt.
 
-Requirements:
-- preserve the recognizable subject from reference image 0
-- transform the reference into a finished collectible sports/trading card, not a mock website and not a card photographed on a table
-- premium professional print design, realistic typography areas, coherent border, lighting, foil/material details when requested
-- use historical card-brand names only as broad aesthetic references; do not reproduce protected logos or exact trademarks
-- portrait trading-card composition, approximately 2.5 x 3.5 ratio
-- avoid cheesy clip-art, childish graphics, fake plastic frames, distorted hands/faces, nonsense text, duplicated subjects, extra limbs
-- if the user names no style, choose a sophisticated premium collector-card direction
-- Oracle aesthetic means luminous white/silver/gold polish, restrained luxury, crisp museum-quality presentation
-- make the prompt detailed enough for FLUX.2 reference-image editing
-`;
- const r=await fetch(ROGERS+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Sports Card Studio',task:'image-prompt-director'}})});
+The final image must be a finished premium collectible trading card, portrait orientation, with the uploaded subject clearly recognizable. Translate any named card brand or era into general visual qualities only; do not request exact logos or trademarked marks. Use elegant framing, authentic print-design balance, premium materials, controlled foil or metallic detail when appropriate, dramatic but tasteful lighting, and clear areas where card typography could sit naturally. Avoid novelty graphics, cheesy clip-art, fake plastic UI, duplicated people, malformed anatomy, illegible text, watermarks, signatures, or copied logos. Aim for sophisticated collector-grade artwork.`;
+
+ if(simplified)return brief;
+ const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input:brief,context:{application:'Oracle Card Studio',task:'card-art-direction'}})});
  const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok)throw new Error(d.error||('Rogers HTTP '+r.status));
+ if(!r.ok||!d.ok)throw new Error('design_unavailable');
  return String(d.output||d.output_text||d.answer||'').trim();
 }
 
-async function generateImage(blob,prompt){
- const form=new FormData();
- form.append('image',blob,'reference.jpg');
- form.append('prompt',prompt);
- const r=await fetch(ROGERS+'/v1/image',{method:'POST',body:form});
+async function renderCard(blob,prompt){
+ const form=new FormData();form.append('image',blob,'reference.jpg');form.append('prompt',prompt);
+ const r=await fetch(SERVICE+'/v1/image',{method:'POST',body:form});
  const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok)throw new Error(d.error||('Image HTTP '+r.status));
+ if(!r.ok||!d.ok){
+   const err=String(d.error||'generation_failed');
+   const e=new Error(err);e.code=err.includes('3030')?'FLAGGED':err;throw e;
+ }
  return d;
 }
 
-$('make').addEventListener('click',async()=>{
+async function createCard(){
  const description=$('message').value.trim();
- if(!sourceFile){$('status').innerHTML='<strong>Upload an image first.</strong>';return}
- if(!description){$('status').innerHTML='<strong>Write a quick description of the card you want.</strong>';return}
- $('make').disabled=true;$('make').textContent='Creating…';$('status').textContent='Rogers is writing the image prompt…';$('meta').textContent='';
+ if(!sourceFile){$('status').innerHTML='<strong>Choose a photo first.</strong>';return}
+ if(!description){$('status').innerHTML='<strong>Describe the card you want.</strong>';return}
+
+ $('make').disabled=true;$('make').textContent='Creating…';$('status').textContent='Designing your card…';
  try{
-   const [blob,prompt]=await Promise.all([resizeImage(sourceFile),rogersPrompt(description)]);
-   if(!prompt)throw new Error('Rogers returned an empty prompt.');
-   $('status').textContent='FLUX.2 is rendering your card from the uploaded image…';
-   const out=await generateImage(blob,prompt);
-   $('resultImage').src=out.dataURI;
-   $('resultImage').style.display='block';
-   $('empty').style.display='none';
+   const blob=await resizeImage(sourceFile);
+   let prompt=await designPrompt(description,false);
+   let out;
+   try{
+     out=await renderCard(blob,prompt);
+   }catch(e){
+     if(e.code!=='FLAGGED')throw e;
+     $('status').textContent='Refining the design…';
+     prompt=await designPrompt(description,true);
+     out=await renderCard(blob,prompt);
+   }
+   $('resultImage').src=out.dataURI;$('resultImage').style.display='block';$('empty').style.display='none';$('newCard').style.display='inline-block';
    $('status').innerHTML='<strong>Card created.</strong>';
-   $('meta').textContent='Rendered with '+(out.model||'FLUX.2')+(Number.isFinite(out.remaining)?' · '+out.remaining+' image generations remaining today':'');
  }catch(e){
-   $('status').innerHTML='<strong>Could not generate:</strong> '+String(e.message||e);
+   const flagged=e.code==='FLAGGED'||String(e.message||'').includes('3030');
+   $('status').innerHTML=flagged
+     ? '<strong>This photo or description could not be rendered.</strong> Try a different crop, photo, or simpler description.'
+     : '<strong>Could not create the card.</strong> Please try again.';
  }finally{
-   $('make').disabled=false;$('make').textContent='Create My Card';
+   $('make').disabled=false;$('make').textContent='Create Card';
  }
+}
+
+$('make').addEventListener('click',createCard);
+$('newCard').addEventListener('click',()=>{
+ $('resultImage').style.display='none';$('empty').style.display='grid';$('newCard').style.display='none';$('status').textContent='Ready for another card.';
 });
