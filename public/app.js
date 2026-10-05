@@ -1,5 +1,15 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
+
+async function fetchWithTimeout(url,options={},timeoutMs=8000){
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),timeoutMs);
+ try{
+  return await fetch(url,{...options,signal:controller.signal});
+ }finally{
+  clearTimeout(timer);
+ }
+}
 let sourceFile=null;
 let previewUrl='';
 let referenceFile=null;
@@ -171,7 +181,7 @@ async function extractCardIntent(description){
 {"playerQuery":"","teamQuery":"","explicitYear":"","cardType":"","subset":"","historicalAngle":""}
 Request: ${description}
 Use playerQuery only for a real player name clearly implied by the request. Do not invent a player.`;
- const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'card-entity-intent'}})});
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'card-entity-intent'}})},4500);
  const d=await r.json().catch(()=>({}));
  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
  return parsed||{playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''};
@@ -179,7 +189,7 @@ Use playerQuery only for a real player name clearly implied by the request. Do n
 
 async function fetchPlayerIntel(name){
  if(!name)return null;
- const r=await fetch(SERVICE+'/v1/card-intel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+ const r=await fetchWithTimeout(SERVICE+'/v1/card-intel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})},4500);
  const d=await r.json().catch(()=>({}));
  return r.ok&&d.ok?d:null;
 }
@@ -249,7 +259,7 @@ Rules:
 - backStyle should describe a matching period-correct card-back design.
 - renderPrompt must be a single strong image-editing prompt that includes every important requirement above and explicitly says to transform reference image 0 into the finished card artwork.
 `;
- const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})});
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})},8000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('design_unavailable');
  const raw=String(d.output||d.output_text||d.answer||'').trim();
@@ -355,7 +365,7 @@ Rules:
 - Preserve useful original inventions from the reference such as unusual foil, rarity cues or collector details when they improve the new card.
 - renderPrompt must explicitly tell the image editor to use reference image 0 for subject identity and reference image 1 for design/style.
 `;
- const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})});
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})},8000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('reference_design_unavailable');
  const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
