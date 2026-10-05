@@ -2,6 +2,71 @@ const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
 let sourceFile=null;
 let previewUrl='';
+let lastBlob=null;
+let lastDescription='';
+let lastPlan=null;
+let results=[];
+let activeResult=-1;
+
+function setBusy(busy,label='Creating…'){
+ $('make').disabled=busy;$('make3').disabled=busy;
+ $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;
+ if(busy){$('make').textContent=label;$('make3').textContent='Working…'}
+ else{$('make').textContent='Create Card';$('make3').textContent='Create 3'}
+}
+
+function renderVariationBar(){
+ const bar=$('variationBar');bar.innerHTML='';
+ if(results.length<2){bar.style.display='none';return}
+ results.forEach((src,i)=>{
+  const b=document.createElement('button');b.type='button';b.className='variationThumb'+(i===activeResult?' active':'');
+  b.setAttribute('aria-label','Variation '+(i+1));
+  const im=document.createElement('img');im.src=src;im.alt='Variation '+(i+1);b.appendChild(im);
+  b.addEventListener('click',()=>showResult(i));bar.appendChild(b);
+ });
+ bar.style.display='flex';
+}
+
+async function showResult(index){
+ const src=results[index];if(!src)return;
+ activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
+ $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';
+ renderVariationBar();
+}
+
+async function finishOutput(out){
+ if(!out?.dataURI)throw new Error('empty_image');
+ const finished=out.mode==='server-composite'?out.dataURI:await stampProductLine(out.dataURI);
+ const img=new Image();img.src=finished;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('image_display_failed'))});
+ results.push(finished);await showResult(results.length-1);return finished;
+}
+
+function variationPrompt(plan,kind,index=0){
+ const base=plan.renderPrompt;
+ if(kind==='retry') return base+' Create a new independent render of the same design. Preserve every hard requirement while allowing natural generative differences.';
+ if(kind==='tighten') return base+' TIGHTEN this design: preserve all hard requirements and successful creative ideas, but improve crop, spacing, border discipline, hierarchy, print realism, typography zones and overall restraint. Remove unnecessary clutter. Do not make it generic.';
+ if(kind==='more') return base+' Create a sibling variation that clearly belongs to the same card family and preserves the best visual language, materials and rarity feel, while inventing one tasteful new premium detail.';
+ const modes=[
+  'Variation 1: faithful execution. Follow the design plan closely while allowing tasteful card-making judgment.',
+  'Variation 2: premium execution. Preserve every hard requirement, but allow one or two valuable collector-grade inventions such as rarity treatment, foil detail, corner device or print finish.',
+  'Variation 3: creative execution. Preserve every hard requirement and subject identity, but explore the strongest original interpretation that still feels like the requested card family.'
+ ];
+ return base+' '+modes[index%3];
+}
+
+async function generateFromPlan(kind='single',count=1){
+ if(!lastBlob||!lastPlan||!lastDescription)throw new Error('missing_build_state');
+ for(let i=0;i<count;i++){
+  stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering the card…');
+  const prompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
+  const out=await renderCard(lastBlob,prompt,lastDescription);
+  stage('render','done');
+  stage('finish','active','Finishing…');
+  await finishOutput(out);
+  stage('finish','done');
+ }
+ $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
+}
 
 function openPicker(){ $('photo').click(); }
 function setPhoto(file){
@@ -144,40 +209,42 @@ async function renderCard(blob,prompt,description){
  return d;
 }
 
-async function createCard(){
+async function createCard(count=1){
  const description=$('message').value.trim();
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(!description){$('status').innerHTML='<strong>Describe the card you want.</strong>';return}
- $('make').disabled=true;$('make').textContent='Creating…';$('status').textContent='Designing your card…';showMonitor();
+ setBusy(true,count===3?'Creating 3…':'Creating…');$('status').textContent='Designing your card…';showMonitor();
  try{
+  results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
   stage('prepare','active','Preparing a high-quality reference image…');
-  const blob=await resizeImage(sourceFile);
+  lastBlob=await resizeImage(sourceFile);
+  lastDescription=description;
   stage('prepare','done');
-
   stage('plan','active','Turning your description into an exact card design…');
-  const plan=await buildDesignPlan(description);
+  lastPlan=await buildDesignPlan(description);
   stage('plan','done');
-
-  stage('render','active','Rendering the full card from your photo and design plan…');
-  const out=await renderCard(blob,plan.renderPrompt,description);
-  if(!out?.dataURI)throw new Error('empty_image');
-  stage('render','done');
-
-  stage('finish','active','Applying final production marking…');
-  const finished=out.mode==='server-composite'?out.dataURI:await stampProductLine(out.dataURI);
-  $('resultImage').src=finished;
-  await new Promise((resolve,reject)=>{if($('resultImage').complete&&$('resultImage').naturalWidth){resolve();return}$('resultImage').onload=resolve;$('resultImage').onerror=()=>reject(new Error('image_display_failed'))});
-  stage('finish','done','Card ready.');
-  $('buildMonitor').style.display='none';$('resultImage').style.display='block';$('empty').style.display='none';$('newCard').style.display='inline-block';
-  $('status').innerHTML='<strong>Card created.</strong>';
+  await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
   if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
   $('buildNote').textContent='Build stopped here. Your photo and description are still ready to retry.';
-  $('status').innerHTML='<strong>Build stopped.</strong> Try Create Card again.';
- }finally{
-  $('make').disabled=false;$('make').textContent='Create Card';
- }
+  $('status').innerHTML='<strong>Build stopped.</strong> Try again.';
+ }finally{setBusy(false)}
+}
+
+async function buildAction(kind){
+ if(!lastBlob||!lastPlan||!lastDescription){$('status').textContent='Create a card first.';return}
+ setBusy(true,kind==='tighten'?'Tightening…':'Creating…');
+ $('buildMonitor').style.display='block';$('resultImage').style.display='none';$('resultActions').style.display='none';resetMonitor();
+ stage('prepare','done');stage('plan','done');
+ try{
+  await generateFromPlan(kind,1);
+ }catch(e){
+  const active=document.querySelector('.buildStep.active');if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
+  $('buildNote').textContent='This variation stopped. Your previous cards are safe.';
+  $('status').innerHTML='<strong>Variation stopped.</strong> Try again.';
+  if(results.length)await showResult(activeResult>=0?activeResult:results.length-1);
+ }finally{setBusy(false)}
 }
 $('make').addEventListener('click',createCard);
 $('newCard').addEventListener('click',()=>{$('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('newCard').style.display='none';$('status').textContent='Ready for another card.'});
