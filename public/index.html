@@ -43,11 +43,11 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;background:rad
         </div>
         <div class="composerFooter">
           <div>
-            <label class="attachButton" for="photo"><span class="attachIcon">＋</span><span>Add image</span></label>
+            <button id="addPhoto" type="button" class="attachButton"><span class="attachIcon">＋</span><span>Add image</span></button>
           </div>
           <button id="make" class="create">Create Card</button>
         </div>
-        <input id="photo" type="file" accept="image/*">
+        <input id="photo" type="file" accept="image/*" hidden aria-hidden="true" tabindex="-1" style="display:none!important;visibility:hidden!important;width:0!important;height:0!important;position:fixed!important;left:-9999px!important;top:-9999px!important">
       </div>
       <div id="status" class="status">Ready when you are.</div>
     </section>
