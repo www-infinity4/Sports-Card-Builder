@@ -259,6 +259,70 @@ Rules:
 }
 
 
+
+function localDesignPlan(description,intel=null,intent=null){
+ const d=String(description||'').trim();
+ const style=styleKnowledge(d);
+ const year=intent?.explicitYear||'';
+ const player=intel?.player?.fullName||intent?.playerQuery||'the uploaded subject';
+ const renderPrompt=[
+  'Transform reference image 0 into a finished collectible sports card.',
+  'Preserve the uploaded subject identity and recognizable face/body.',
+  d?'User direction: '+d+'.':'Use a clean, photo-first vintage sports-card composition.',
+  'Card-style guidance: '+style,
+  year?'Use '+year+' as the explicit era/year direction.':'',
+  'Render the WHOLE card as one coherent printed object with sharp rectangular card corners.',
+  'Use disciplined border geometry, intentional typography zones, period-appropriate print texture and restrained readable graphics.',
+  'Do not create a slab, holder, tabletop mockup, phone screen, empty template, placeholder window, or generic metallic frame.',
+  'Do not reproduce exact logos or trademark marks.',
+  'Keep generated lettering minimal because final production text is handled separately.'
+ ].filter(Boolean).join(' ');
+ return {
+  era:year||'user-directed',
+  cardFamily:'locally directed sports-card design',
+  outerBorder:'Follow the request literally; keep the full card perimeter clearly visible.',
+  innerFrame:'Structured print-card geometry that supports the photograph.',
+  palette:'Use colors requested by the user and appropriate team/era accents.',
+  photoTreatment:'Integrate '+player+' into the complete card artwork; do not paste the image into an empty frame.',
+  layout:'Photo-first collectible-card layout with deliberate border, name and team zones.',
+  materials:'Printed trading-card stock with era-appropriate matte or gloss finish.',
+  lighting:'Natural subject lighting integrated with the card art.',
+  typeZones:'Reserve readable player/team/stat zones without generating excessive fake text.',
+  specialDetails:'Preserve explicit design details from the request.',
+  suggestedYear:year,
+  suggestedCardType:intent?.cardType||'',
+  suggestions:[],
+  backStyle:'Match the front era and geometry with a readable statistics-first card back.',
+  mustPreserve:['subject identity','explicit colors','explicit border and era instructions','full sharp card corners'],
+  mustAvoid:['slab or holder','tabletop mockup','generic luxury frame','unrequested logos'],
+  renderPrompt
+ };
+}
+
+function localReferencePlan(description){
+ const d=String(description||'').trim();
+ return {
+  designDNA:'Carry over the composition and visual design language from reference image 1.',
+  outerBorder:'Match the reference card perimeter and border proportions while keeping the entire card visible.',
+  innerFrame:'Adapt the reference framing around the new subject.',
+  palette:'Carry over the reference color relationships unless the user overrides them.',
+  photoWindow:'Use reference image 0 as the subject and reference image 1 only for design language.',
+  typeZones:'Match the reference hierarchy without copying literal names, logos, or trademarks.',
+  materials:'Match the reference print/foil/material treatment.',
+  rarityTreatment:'Preserve useful rarity cues from the reference.',
+  specialDetails:'Keep sharp rectangular card corners and coherent whole-card construction.',
+  mustPreserve:['subject identity from image 0','design language from image 1','full card perimeter'],
+  mustAdapt:['names','team identifiers','literal text and trademarks'],
+  renderPrompt:[
+   'Create a finished sports card using reference image 0 for subject identity and reference image 1 for design/style.',
+   d?'User direction: '+d+'.':'',
+   'Carry over reference image 1 composition, border geometry, color blocking, materials, photo-window proportions, typography zones and collector details.',
+   'Do not copy literal names, team logos, trademarks or text from the reference card.',
+   'Integrate the new subject naturally into the complete printed card. Keep the entire card visible with sharp rectangular corners. No slab, holder or tabletop mockup.'
+  ].filter(Boolean).join(' ')
+ };
+}
+
 async function buildReferencePlan(description){
  const input=`You are Oracle, a senior sports-card design analyst. The user supplied TWO images:
 - reference image 0 = the SUBJECT that must appear on the new card
@@ -447,11 +511,15 @@ async function createCard(count=1,mode='original'){
   buildMode=mode;
   stage('prepare','done');
   stage('plan','active','Researching the player, year and card concept…');
-  lastIntent=await extractCardIntent(lastDescription);
-  lastIntel=lastIntent?.playerQuery?await fetchPlayerIntel(lastIntent.playerQuery):null;
-  lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription,lastIntel,lastIntent);
+  try{lastIntent=await extractCardIntent(lastDescription)}catch{lastIntent={playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''}}
+  try{lastIntel=lastIntent?.playerQuery?await fetchPlayerIntel(lastIntent.playerQuery):null}catch{lastIntel=null}
+  try{
+   lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription,lastIntel,lastIntent);
+  }catch{
+   lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
+  }
   renderSmartIdeas(lastPlan);
-  stage('plan','done');
+  stage('plan','done','Design direction ready.');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
