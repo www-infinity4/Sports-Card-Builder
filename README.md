@@ -1,6 +1,6 @@
 # Sports-Card-Builder
 
-A minimal Gemini-powered baseball card builder app with multi-series release support.
+A minimal Rogers-AI-powered baseball card builder app with multi-series release support.
 
 It now includes structured sets for:
 - Topps Now 2026
@@ -24,10 +24,10 @@ npm install
 ## Run
 
 ```bash
-GEMINI_API_KEY=your_key_here npm start
+npm start
 ```
 
-If `GEMINI_API_KEY` is not set, the app still returns a template-safe draft card using the locked style rules.
+The app uses the existing Rogers AI gateway and does not ask for an external AI key. If Rogers is unavailable, it returns a template-safe draft card using the locked style rules.
 
 Open `http://localhost:3000`.
 
