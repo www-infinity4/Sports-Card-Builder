@@ -1,5 +1,7 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
+const BUILDER=window.OracleBuilderTools||null;
+let lastToolPlan=null;
 
 async function fetchWithTimeout(url,options={},timeoutMs=8000){
  const controller=new AbortController();
@@ -74,6 +76,11 @@ function variationPrompt(plan,kind,index=0){
 
 async function generateFromPlan(kind='single',count=1){
  if(!lastBlob||!lastPlan||!lastDescription)throw new Error('missing_build_state');
+ if(BUILDER){
+  const tp=lastPlan.toolSpec||lastToolPlan||BUILDER.buildToolPlan(lastDescription);
+  const check=BUILDER.validatePlan(lastPlan,tp.semantics);
+  if(!check.ok)lastPlan=BUILDER.normalizeAIPlan(lastPlan,tp);
+ }
  for(let i=0;i<count;i++){
   stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering the card…');
   const prompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
@@ -207,6 +214,8 @@ function renderSmartIdeas(plan){
 }
 
 async function buildDesignPlan(description,intel=null,intent=null){
+ const toolPlan=BUILDER?BUILDER.buildToolPlan(description):null;
+ lastToolPlan=toolPlan;
  const input=`You are Oracle, a senior sports-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0.
 
 USER REQUEST:
@@ -220,6 +229,9 @@ ${intel?JSON.stringify({player:intel.player,highlights:intel.highlights,seasons:
 
 EXTRACTED INTENT:
 ${JSON.stringify(intent||{})}
+
+BUILDER TOOL SPECIFICATION (treat hardRequirements as locked constraints; enrich, do not contradict):
+${toolPlan?JSON.stringify({semantics:toolPlan.semantics,style:toolPlan.style,layout:toolPlan.layout,hardRequirements:BUILDER.hardRequirements(toolPlan.semantics,toolPlan.style,toolPlan.layout)}):'Builder toolkit unavailable.'}
 
 Return ONLY valid JSON:
 {
@@ -265,12 +277,23 @@ Rules:
  const raw=String(d.output||d.output_text||d.answer||'').trim();
  const plan=extractJSON(raw);
  if(!plan?.renderPrompt)throw new Error('design_plan_invalid');
- return plan;
+ return BUILDER&&toolPlan?BUILDER.normalizeAIPlan(plan,toolPlan):plan;
 }
 
 
 
 function localDesignPlan(description,intel=null,intent=null){
+ if(BUILDER){
+  const toolPlan=BUILDER.buildToolPlan(description);lastToolPlan=toolPlan;
+  return BUILDER.normalizeAIPlan({
+   era:toolPlan.semantics.year||'user-directed',
+   cardFamily:toolPlan.style.family,
+   suggestedYear:toolPlan.semantics.year||'',
+   suggestedCardType:toolPlan.semantics.cardType||'',
+   suggestions:[],
+   backStyle:'Match the front era, print language and information hierarchy.'
+  },toolPlan);
+ }
  const d=String(description||'').trim();
  const style=styleKnowledge(d);
  const year=intent?.explicitYear||'';
@@ -520,7 +543,7 @@ async function createCard(count=1,mode='original'){
   lastDescription=description||'Build a new card using the uploaded reference design.';
   buildMode=mode;
   stage('prepare','done');
-  stage('plan','active','Researching the player, year and card concept…');
+  stage('plan','active','Reading semantics, era, layout and locked card details…');
   try{lastIntent=await extractCardIntent(lastDescription)}catch{lastIntent={playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''}}
   try{lastIntel=lastIntent?.playerQuery?await fetchPlayerIntel(lastIntent.playerQuery):null}catch{lastIntel=null}
   try{
@@ -529,7 +552,7 @@ async function createCard(count=1,mode='original'){
    lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
   }
   renderSmartIdeas(lastPlan);
-  stage('plan','done','Design direction ready.');
+  stage('plan','done',lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
