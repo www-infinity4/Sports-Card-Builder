@@ -11,10 +11,14 @@ let lastDescription='';
 let lastPlan=null;
 let results=[];
 let activeResult=-1;
+let lastIntel=null;
+let lastIntent=null;
+let backResult='';
+let currentSide='front';
 
 function setBusy(busy,label='Creating…'){
  $('make').disabled=busy;$('make3').disabled=busy;$('buildLike').disabled=busy;
- $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;
+ $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;$('backBtn').disabled=busy;
  if(busy){$('make').textContent=label;$('make3').textContent='Working…'}
  else{$('make').textContent='Create Card';$('buildLike').textContent='Build Like This Card';$('make3').textContent='Create 3'}
 }
@@ -34,7 +38,7 @@ function renderVariationBar(){
 async function showResult(index){
  const src=results[index];if(!src)return;
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
- $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';
+ $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
  renderVariationBar();
 }
 
@@ -161,7 +165,38 @@ function styleKnowledge(description){
  return hits.length?hits.join("\n"):"No named card family detected; follow the user's visual words literally.";
 }
 
-async function buildDesignPlan(description){
+
+async function extractCardIntent(description){
+ const input=`Extract baseball-card creation intent from this request. Return ONLY JSON:
+{"playerQuery":"","teamQuery":"","explicitYear":"","cardType":"","subset":"","historicalAngle":""}
+Request: ${description}
+Use playerQuery only for a real player name clearly implied by the request. Do not invent a player.`;
+ const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'card-entity-intent'}})});
+ const d=await r.json().catch(()=>({}));
+ const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
+ return parsed||{playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''};
+}
+
+async function fetchPlayerIntel(name){
+ if(!name)return null;
+ const r=await fetch(SERVICE+'/v1/card-intel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+ const d=await r.json().catch(()=>({}));
+ return r.ok&&d.ok?d:null;
+}
+
+function renderSmartIdeas(plan){
+ const box=$('smartIdeas');box.innerHTML='';
+ const ideas=Array.isArray(plan?.suggestions)?plan.suggestions.filter(Boolean).slice(0,5):[];
+ if(!ideas.length){box.style.display='none';return}
+ ideas.forEach(text=>{
+  const b=document.createElement('button');b.type='button';b.className='ideaChip';b.textContent=text;
+  b.addEventListener('click',()=>{$('message').value=text;$('message').focus()});
+  box.appendChild(b);
+ });
+ box.style.display='flex';
+}
+
+async function buildDesignPlan(description,intel=null,intent=null){
  const input=`You are Oracle, a senior sports-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0.
 
 USER REQUEST:
@@ -169,6 +204,12 @@ ${description}
 
 INTERNAL CARD-STYLE REFERENCE:
 ${styleKnowledge(description)}
+
+PUBLIC PLAYER / SEASON DATA:
+${intel?JSON.stringify({player:intel.player,highlights:intel.highlights,seasons:(intel.seasons||[]).slice(-12)}):"No verified player data available."}
+
+EXTRACTED INTENT:
+${JSON.stringify(intent||{})}
 
 Return ONLY valid JSON:
 {
@@ -183,6 +224,10 @@ Return ONLY valid JSON:
  "lighting":"",
  "typeZones":"",
  "specialDetails":"",
+ "suggestedYear":"",
+ "suggestedCardType":"",
+ "suggestions":["","",""],
+ "backStyle":"",
  "mustPreserve":[""],
  "mustAvoid":[""],
  "renderPrompt":""
@@ -198,6 +243,10 @@ Rules:
 - Do not generate logos or exact trademark marks. Style resemblance is fine.
 - No mockup, tabletop, slab, holder, phone screen, empty template or placeholder window.
 - Keep generated lettering minimal because final production text is added separately.
+- If verified player data is supplied, use it to suggest historically meaningful card concepts: standout seasons, team/position context, postseason-era concepts, matchup or teammate pairings when sensible. Do not fabricate statistics.
+- suggestions should be concise ready-to-use card ideas. Example: "1976 Reds catcher card with Johnny Bench and Big Red Machine championship-era styling."
+- suggestedYear should prefer a meaningful season supported by verified data unless the user explicitly named a year.
+- backStyle should describe a matching period-correct card-back design.
 - renderPrompt must be a single strong image-editing prompt that includes every important requirement above and explicitly says to transform reference image 0 into the finished card artwork.
 `;
  const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})});
@@ -250,13 +299,121 @@ Rules:
  return plan;
 }
 
+
+const BACK_STYLE_LIBRARY={
+ "topps:1989":{bg:"#e6b04f",ink:"#1f2e3c",accent:"#d94b35",panel:"#f1cf7b",rule:"#334b61",title:"1989 flagship back"},
+ "topps:1987":{bg:"#e7c56e",ink:"#24363d",accent:"#b84237",panel:"#f3dc98",rule:"#324952",title:"1987 flagship back"},
+ "fleer:1987":{bg:"#dce7ee",ink:"#1f2933",accent:"#2d6aa1",panel:"#f7fbfe",rule:"#84a8c5",title:"1987 Fleer-style back"},
+ "donruss:1989":{bg:"#efe6d1",ink:"#241f1a",accent:"#c44b34",panel:"#fffaf0",rule:"#30343b",title:"1989 Donruss-style back"},
+ "upper deck:1989":{bg:"#e7edf2",ink:"#152331",accent:"#3e6f9f",panel:"#ffffff",rule:"#a7b8c7",title:"1989 premium photo-era back"},
+ generic:{bg:"#e6edf3",ink:"#17212a",accent:"#486f91",panel:"#f9fbfc",rule:"#9fb0bf",title:"Oracle card back"}
+};
+
+function backStyleFor(description,plan){
+ const t=(description+' '+(plan?.cardFamily||'')+' '+(plan?.era||'')).toLowerCase();
+ const year=(description.match(/\b(19|20)\d{2}\b/)||[])[0]||String(plan?.suggestedYear||'');
+ for(const key of Object.keys(BACK_STYLE_LIBRARY)){
+  if(key==='generic')continue;
+  const [brand,y]=key.split(':');
+  if(t.includes(brand)&&String(year)===y)return BACK_STYLE_LIBRARY[key];
+ }
+ if(t.includes('topps'))return BACK_STYLE_LIBRARY['topps:1989'];
+ if(t.includes('fleer'))return BACK_STYLE_LIBRARY['fleer:1987'];
+ if(t.includes('donruss'))return BACK_STYLE_LIBRARY['donruss:1989'];
+ if(t.includes('upper deck'))return BACK_STYLE_LIBRARY['upper deck:1989'];
+ return BACK_STYLE_LIBRARY.generic;
+}
+
+function fitText(ctx,text,x,y,maxWidth,lineHeight,maxLines=3){
+ const words=String(text||'').split(/\s+/);let line='',lines=[];
+ for(const word of words){const test=line?line+' '+word:word;if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=word}else line=test}
+ if(line)lines.push(line);lines=lines.slice(0,maxLines);
+ lines.forEach((ln,i)=>ctx.fillText(ln,x,y+i*lineHeight));
+ return y+lines.length*lineHeight;
+}
+
+function selectedStats(){
+ const hi=lastIntel?.highlights||[];
+ const target=String(lastPlan?.suggestedYear||lastIntent?.explicitYear||'');
+ return hi.find(s=>String(s.season)===target)||hi[0]||(lastIntel?.seasons||[]).slice(-1)[0]||null;
+}
+
+async function buildBackCard(){
+ if(!results.length){$('status').textContent='Create the front first.';return}
+ const style=backStyleFor(lastDescription,lastPlan);
+ const canvas=document.createElement('canvas');canvas.width=768;canvas.height=1024;
+ const ctx=canvas.getContext('2d');
+ ctx.fillStyle=style.bg;ctx.fillRect(0,0,768,1024);
+ ctx.fillStyle=style.accent;ctx.fillRect(0,0,768,72);
+ ctx.fillStyle=style.panel;ctx.fillRect(34,94,700,820);
+ ctx.strokeStyle=style.rule;ctx.lineWidth=5;ctx.strokeRect(34,94,700,820);
+ ctx.fillStyle=style.ink;ctx.textAlign='left';
+ const player=lastIntel?.player||{};
+ const stat=selectedStats();
+ ctx.font='900 34px Arial';ctx.fillText(player.fullName||'Fantasy Player Card',62,145);
+ ctx.font='700 17px Arial';ctx.fillText([player.primaryPosition,stat?.team,stat?.season].filter(Boolean).join(' · '),62,176);
+ ctx.strokeStyle=style.rule;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(62,195);ctx.lineTo(706,195);ctx.stroke();
+
+ ctx.font='900 19px Arial';ctx.fillText('PLAYER PROFILE',62,232);
+ ctx.font='16px Arial';
+ let yy=264;
+ const profileLines=[
+  player.mlbDebutDate?'MLB debut: '+player.mlbDebutDate:'',
+  player.batSide?'Bats: '+player.batSide:'',
+  player.pitchHand?'Throws: '+player.pitchHand:'',
+  player.height?'Height: '+player.height:'',
+  player.weight?'Weight: '+player.weight:''
+ ].filter(Boolean);
+ profileLines.forEach(v=>{ctx.fillText(v,62,yy);yy+=25});
+
+ ctx.font='900 19px Arial';ctx.fillText('SELECTED SEASON',62,410);
+ ctx.fillStyle='#ffffff';ctx.fillRect(62,430,644,112);
+ ctx.fillStyle=style.ink;ctx.font='800 16px Arial';
+ const stats=stat?.group==='pitching'
+  ? [['YR',stat?.season],['TEAM',stat?.team],['W',stat?.wins],['L',stat?.losses],['ERA',stat?.era],['SO',stat?.strikeOuts],['SV',stat?.saves]]
+  : [['YR',stat?.season],['TEAM',stat?.team],['G',stat?.gamesPlayed],['AVG',stat?.avg],['HR',stat?.homeRuns],['RBI',stat?.rbi],['H',stat?.hits]];
+ let sx=78;stats.forEach(([k,v],i)=>{ctx.font='800 12px Arial';ctx.fillText(String(k||''),sx,460);ctx.font='900 16px Arial';ctx.fillText(String(v??''),sx,492);sx+=i===1?130:75});
+
+ ctx.font='900 19px Arial';ctx.fillText('ORACLE CARD NOTE',62,592);
+ ctx.font='16px Arial';
+ const note=(lastPlan?.suggestions?.[0]||lastPlan?.specialDetails||lastDescription||'Custom fantasy card concept.');
+ fitText(ctx,note,62,626,640,24,4);
+
+ ctx.font='900 19px Arial';ctx.fillText('CAREER SNAPSHOT',62,748);
+ ctx.font='14px Arial';
+ const seasons=(lastIntel?.seasons||[]).slice(-6);
+ let sy=777;
+ seasons.forEach(s=>{
+  const row=s.group==='pitching'
+   ? [s.season,s.team,'W '+s.wins,'ERA '+s.era,'SO '+s.strikeOuts]
+   : [s.season,s.team,'AVG '+s.avg,'HR '+s.homeRuns,'RBI '+s.rbi];
+  ctx.fillText(row.filter(Boolean).join('   '),62,sy);sy+=22;
+ });
+
+ // High-contrast legal/product line: never white-on-white.
+ ctx.fillStyle='#121820';ctx.fillRect(0,956,768,68);
+ ctx.fillStyle='#fff';ctx.font='700 13px Arial';ctx.textAlign='center';
+ ctx.fillText('Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC',384,988,720);
+ backResult=canvas.toDataURL('image/png');
+ showBack();
+}
+
+function showFront(){
+ currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
+ if(results.length)$('resultImage').src=results[activeResult>=0?activeResult:results.length-1];
+}
+function showBack(){
+ if(!backResult)return;
+ currentSide='back';$('backSide').classList.add('active');$('frontSide').classList.remove('active');
+ $('resultImage').src=backResult;$('resultImage').style.display='block';$('empty').style.display='none';$('sideSwitch').style.display='flex';
+}
+
 async function stampProductLine(dataURI){
  const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('stamp_load_failed'))});
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
- const h=Math.max(28,Math.round(canvas.height*.036));
- const g=ctx.createLinearGradient(0,canvas.height-h,0,canvas.height);g.addColorStop(0,'rgba(8,12,18,.05)');g.addColorStop(1,'rgba(8,12,18,.68)');
- ctx.fillStyle=g;ctx.fillRect(0,canvas.height-h,canvas.width,h);
+ const h=Math.max(34,Math.round(canvas.height*.044));
+ ctx.fillStyle='rgba(12,17,23,.92)';ctx.fillRect(0,canvas.height-h,canvas.width,h);
  const text='Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC';
  ctx.font=Math.max(10,Math.round(canvas.width*.017))+'px Arial, sans-serif';ctx.fillStyle='rgba(255,255,255,.94)';ctx.textAlign='center';ctx.textBaseline='middle';
  ctx.fillText(text,canvas.width/2,canvas.height-h/2,canvas.width-Math.round(canvas.width*.04));
@@ -289,8 +446,11 @@ async function createCard(count=1,mode='original'){
   lastDescription=description||'Build a new card using the uploaded reference design.';
   buildMode=mode;
   stage('prepare','done');
-  stage('plan','active','Turning your description into an exact card design…');
-  lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription);
+  stage('plan','active','Researching the player, year and card concept…');
+  lastIntent=await extractCardIntent(lastDescription);
+  lastIntel=lastIntent?.playerQuery?await fetchPlayerIntel(lastIntent.playerQuery):null;
+  lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription,lastIntel,lastIntent);
+  renderSmartIdeas(lastPlan);
   stage('plan','done');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
@@ -315,5 +475,16 @@ async function buildAction(kind){
   if(results.length)await showResult(activeResult>=0?activeResult:results.length-1);
  }finally{setBusy(false)}
 }
-$('make').addEventListener('click',createCard);
-$('newCard').addEventListener('click',()=>{$('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('newCard').style.display='none';$('status').textContent='Ready for another card.'});
+$('make').addEventListener('click',()=>createCard(1,'original'));
+$('buildLike').addEventListener('click',()=>createCard(1,'reference'));
+$('make3').addEventListener('click',()=>createCard(3,referenceFile?'reference':'original'));
+$('retryBtn').addEventListener('click',()=>buildAction('retry'));
+$('tightenBtn').addEventListener('click',()=>buildAction('tighten'));
+$('moreBtn').addEventListener('click',()=>buildAction('more'));
+$('backBtn').addEventListener('click',buildBackCard);
+$('frontSide').addEventListener('click',showFront);
+$('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
+$('newCard').addEventListener('click',()=>{
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';
+ $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
+});
