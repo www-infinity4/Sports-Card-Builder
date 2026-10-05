@@ -19,7 +19,10 @@ function setPhoto(file){
 $('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
 $('replacePhoto').addEventListener('click',()=>{$('photo').click()});
 $('removePhoto').addEventListener('click',()=>setPhoto(null));
-$('thumbBox').addEventListener('click',e=>{if(!sourceFile&&!e.target.closest('button'))$('photo').click()});
+$('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))$('photo').click()});
+['dragenter','dragover'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#aeb8c3'}));
+['dragleave','drop'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#d7dde4'}));
+$('composer').addEventListener('drop',e=>{const f=[...(e.dataTransfer?.files||[])].find(x=>x.type.startsWith('image/'));if(f)setPhoto(f)});
 
 async function resizeImage(file,max=500){
  const bitmap=await createImageBitmap(file);
