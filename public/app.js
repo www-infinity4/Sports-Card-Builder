@@ -17,7 +17,8 @@ function setPhoto(file){
  $('status').textContent='Photo ready.';
 }
 $('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
-$('replacePhoto').addEventListener('click',()=>{$('photo').click()});
+$('addPhoto').addEventListener('click',()=>{$('photo').click()});
+$('replacePhoto').addEventListener('click',e=>{e.stopPropagation();$('photo').click()});
 $('removePhoto').addEventListener('click',()=>setPhoto(null));
 $('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))$('photo').click()});
 ['dragenter','dragover'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#aeb8c3'}));
