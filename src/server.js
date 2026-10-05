@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { generateCardWithRogers } = require('./gemini');
 const { getReleasePlan } = require('./style-template');
+const { getAbilities } = require('./ability-registry');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -41,6 +42,10 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/api/releases') {
     return sendJson(res, 200, getReleasePlan());
+  }
+
+  if (req.method === 'GET' && req.url === '/api/abilities') {
+    return sendJson(res, 200, getAbilities());
   }
 
   if (req.method === 'POST' && req.url === '/api/chat') {
