@@ -57,7 +57,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
  linear-gradient(135deg,#fff,#dfeaf3 52%,#f7fbfe);color:#11161c;font-weight:950;cursor:pointer;box-shadow:0 10px 24px rgba(67,80,94,.12),inset 0 1px 0 #fff}
 .createBtn:disabled{opacity:.55;cursor:default}
 #photo{display:none!important}
-.status{min-height:22px;margin-top:11px;text-align:center;color:#6f7984;font-size:.87rem}
+.status{min-height:22px;margin-top:11px;text-align:center;color:#6f7984;font-size:.87rem}.smartIdeas{display:none;margin-top:10px;gap:7px;flex-wrap:wrap;justify-content:center}.ideaChip{border:1px solid #c8d3dc;border-radius:999px;background:rgba(255,255,255,.72);color:#4f5b66;padding:7px 10px;font-size:.78rem;font-weight:850;cursor:pointer}.sideSwitch{display:none;gap:6px}.sideBtn{border:1px solid #c7d1da;border-radius:999px;background:#f7fafc;color:#66727e;font-weight:850;padding:7px 10px;font-size:.76rem;cursor:pointer}.sideBtn.active{background:#24313d;color:#fff;border-color:#24313d}
 .status strong{color:#22282f}
 .previewHead{display:flex;align-items:end;justify-content:space-between;gap:10px;margin-bottom:13px}
 .previewHead small{color:#7e8894;font-weight:800}
@@ -136,12 +136,13 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <input id="referencePhoto" type="file" accept="image/*" hidden aria-hidden="true" tabindex="-1">
    </div>
    <div id="status" class="status">Tap the photo tile to begin.</div>
+   <div id="smartIdeas" class="smartIdeas" aria-label="Oracle suggestions"></div>
   </section>
 
   <section class="panel">
    <div class="previewHead">
     <div><div class="sectionLabel">Your card</div><h2 style="margin:0">Finished design</h2></div>
-    <small>Oracle Edition</small>
+    <div id="sideSwitch" class="sideSwitch"><button id="frontSide" class="sideBtn active" type="button">Front</button><button id="backSide" class="sideBtn" type="button">Back</button></div>
    </div>
    <div class="canvas">
     <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload a photo, describe the exact look, and create.</div></div>
@@ -162,6 +163,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <button id="retryBtn" class="actionBtn">Retry</button>
     <button id="tightenBtn" class="actionBtn primary">Tighten</button>
     <button id="moreBtn" class="actionBtn">More like this</button>
+    <button id="backBtn" class="actionBtn">Build Back</button>
     <button id="newCard" class="newBtn">New card</button>
    </div>
   </section>
