@@ -54,11 +54,32 @@ function extractJSON(text){
  return null;
 }
 
+const CARD_STYLE_LIBRARY={
+ topps:"classic flagship baseball card; disciplined rectangular geometry; clearly defined perimeter border when requested; thin inner accent rules; photo-first composition; restrained team-color accents; compact player-name and team typography zones; vintage-to-modern matte/gloss print depending on era; never a generic metallic luxury frame",
+ fleer:"1980s-to-1990s colorful baseball-card language; bright edge treatments; energetic geometric color blocking; compact lower-third name treatment; lively but printable graphics; photo-forward center",
+ donruss:"bold late-1980s baseball-card design; strong border geometry; warm saturated print colors; angular or ribbon-like graphic elements; clear name/team zones; vintage coated-card finish",
+ "upper deck":"premium early-1990s photography-led sports card; cleaner border system; strong full-color image; restrained metallic accents; upscale editorial spacing; crisp modern print feel",
+ bowman:"prospect-focused baseball card; clean youthful presentation; modern border system; prominent subject; rookie/prospect hierarchy; bright premium finish",
+ "stadium club":"near-full-bleed photography; minimal framing; dramatic sports photography; subtle typography; premium glossy finish; border should stay restrained unless explicitly requested",
+ score:"bright energetic sports-card graphics; strong color blocks; bold border rhythm; accessible late-1980s/1990s print feel; readable lower-third zones",
+ leaf:"heritage collector-card aesthetic; refined traditional framing; rich print texture; classic composition; restrained premium treatment",
+ "diamond kings":"illustrated fine-art baseball-card feel; painterly portrait integration; decorative collector composition; rich warm color; handcrafted card-art character"
+};
+
+function styleKnowledge(description){
+ const t=String(description||'').toLowerCase();
+ const hits=Object.entries(CARD_STYLE_LIBRARY).filter(([k])=>t.includes(k)).map(([k,v])=>k.toUpperCase()+": "+v);
+ return hits.length?hits.join("\n"):"No named card family detected; follow the user's visual words literally.";
+}
+
 async function buildDesignPlan(description){
  const input=`You are Oracle, a senior sports-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0.
 
 USER REQUEST:
 ${description}
+
+INTERNAL CARD-STYLE REFERENCE:
+${styleKnowledge(description)}
 
 Return ONLY valid JSON:
 {
