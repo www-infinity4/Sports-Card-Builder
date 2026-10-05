@@ -2,6 +2,10 @@ const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const $=id=>document.getElementById(id);
 let sourceFile=null;
 let previewUrl='';
+let referenceFile=null;
+let referencePreviewUrl='';
+let lastReferenceBlob=null;
+let buildMode='original';
 let lastBlob=null;
 let lastDescription='';
 let lastPlan=null;
@@ -9,10 +13,10 @@ let results=[];
 let activeResult=-1;
 
 function setBusy(busy,label='Creating…'){
- $('make').disabled=busy;$('make3').disabled=busy;
+ $('make').disabled=busy;$('make3').disabled=busy;$('buildLike').disabled=busy;
  $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;
  if(busy){$('make').textContent=label;$('make3').textContent='Working…'}
- else{$('make').textContent='Create Card';$('make3').textContent='Create 3'}
+ else{$('make').textContent='Create Card';$('buildLike').textContent='Build Like This Card';$('make3').textContent='Create 3'}
 }
 
 function renderVariationBar(){
@@ -59,7 +63,7 @@ async function generateFromPlan(kind='single',count=1){
  for(let i=0;i<count;i++){
   stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering the card…');
   const prompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
-  const out=await renderCard(lastBlob,prompt,lastDescription);
+  const out=await renderCard(lastBlob,prompt,lastDescription,lastReferenceBlob);
   stage('render','done');
   stage('finish','active','Finishing…');
   await finishOutput(out);
@@ -88,6 +92,26 @@ $('removePhoto').addEventListener('click',e=>{e.stopPropagation();setPhoto(null)
 ['dragenter','dragover'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#9fb7ca'}));
 ['dragleave','drop'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#cdd7e1'}));
 $('composer').addEventListener('drop',e=>{const f=[...(e.dataTransfer?.files||[])].find(x=>x.type.startsWith('image/'));if(f)setPhoto(f)});
+
+
+function openReferencePicker(){ $('referencePhoto').click(); }
+function setReference(file){
+ referenceFile=file||null;
+ if(referencePreviewUrl){URL.revokeObjectURL(referencePreviewUrl);referencePreviewUrl=''}
+ if(!referenceFile){
+  $('referenceThumb').removeAttribute('src');$('referenceThumb').style.display='none';$('referenceText').style.display='grid';
+  $('referenceControls').style.display='none';$('referencePhoto').value='';
+  return;
+ }
+ referencePreviewUrl=URL.createObjectURL(referenceFile);
+ $('referenceThumb').src=referencePreviewUrl;$('referenceThumb').style.display='block';$('referenceText').style.display='none';
+ $('referenceControls').style.display='flex';$('status').textContent='Reference card ready. Add a subject and tell Oracle what to carry over.';
+}
+$('referencePhoto').addEventListener('change',e=>setReference(e.target.files?.[0]||null));
+$('referenceBox').addEventListener('click',e=>{if(!e.target.closest('button'))openReferencePicker()});
+$('referenceBox').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openReferencePicker()}});
+$('replaceReference').addEventListener('click',e=>{e.stopPropagation();openReferencePicker()});
+$('removeReference').addEventListener('click',e=>{e.stopPropagation();setReference(null)});
 
 function resetMonitor(){
  document.querySelectorAll('.buildStep').forEach(el=>{el.classList.remove('active','done','error');el.querySelector('.state').textContent='Waiting'});
@@ -185,6 +209,47 @@ Rules:
  return plan;
 }
 
+
+async function buildReferencePlan(description){
+ const input=`You are Oracle, a senior sports-card design analyst. The user supplied TWO images:
+- reference image 0 = the SUBJECT that must appear on the new card
+- reference image 1 = the CARD DESIGN REFERENCE whose visual design language should be carried over
+
+USER REQUEST:
+${description||'Build a new card using the reference card design.'}
+
+Return ONLY valid JSON:
+{
+ "designDNA":"",
+ "outerBorder":"",
+ "innerFrame":"",
+ "palette":"",
+ "photoWindow":"",
+ "typeZones":"",
+ "materials":"",
+ "rarityTreatment":"",
+ "specialDetails":"",
+ "mustPreserve":[""],
+ "mustAdapt":[""],
+ "renderPrompt":""
+}
+
+Rules:
+- Copy the visual DESIGN LANGUAGE of reference image 1: composition, border geometry, color blocking, foil/material treatment, rarity treatment, corner devices, photo-window proportions and typography zones.
+- Put the SUBJECT from reference image 0 into the new card.
+- Do not copy logos, trademarks, player names, team logos, or literal text from reference image 1.
+- The final result must feel like the same card family, not like an image pasted into a frame.
+- Preserve useful original inventions from the reference such as unusual foil, rarity cues or collector details when they improve the new card.
+- renderPrompt must explicitly tell the image editor to use reference image 0 for subject identity and reference image 1 for design/style.
+`;
+ const r=await fetch(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})});
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok)throw new Error('reference_design_unavailable');
+ const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
+ if(!plan?.renderPrompt)throw new Error('reference_plan_invalid');
+ return plan;
+}
+
 async function stampProductLine(dataURI){
  const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('stamp_load_failed'))});
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
@@ -198,9 +263,10 @@ async function stampProductLine(dataURI){
  return canvas.toDataURL('image/jpeg',.95);
 }
 
-async function renderCard(blob,prompt,description){
+async function renderCard(blob,prompt,description,designBlob=null){
  const form=new FormData();
- form.append('image',blob,'reference.jpg');
+ form.append('image',blob,'subject.jpg');
+ if(designBlob)form.append('design_reference',designBlob,'design-reference.jpg');
  form.append('prompt',prompt);
  form.append('request',description);
  const r=await fetch(SERVICE+'/v1/image',{method:'POST',body:form});
@@ -209,19 +275,22 @@ async function renderCard(blob,prompt,description){
  return d;
 }
 
-async function createCard(count=1){
+async function createCard(count=1,mode='original'){
  const description=$('message').value.trim();
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
- if(!description){$('status').innerHTML='<strong>Describe the card you want.</strong>';return}
+ if(!description&&mode!=='reference'){$('status').innerHTML='<strong>Describe the card you want.</strong>';return}
+ if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
  setBusy(true,count===3?'Creating 3…':'Creating…');$('status').textContent='Designing your card…';showMonitor();
  try{
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
   stage('prepare','active','Preparing a high-quality reference image…');
   lastBlob=await resizeImage(sourceFile);
-  lastDescription=description;
+  lastReferenceBlob=mode==='reference'?await resizeImage(referenceFile):null;
+  lastDescription=description||'Build a new card using the uploaded reference design.';
+  buildMode=mode;
   stage('prepare','done');
   stage('plan','active','Turning your description into an exact card design…');
-  lastPlan=await buildDesignPlan(description);
+  lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription);
   stage('plan','done');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
