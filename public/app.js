@@ -8,12 +8,12 @@ function setPhoto(file){
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
  if(!sourceFile){
   $('thumb').removeAttribute('src');$('thumb').style.display='none';$('thumbText').style.display='block';
-  $('thumbControls').style.display='none';$('fileName').textContent='No image selected';$('photo').value='';
+  $('thumbControls').style.display='none';$('photo').value='';
   $('status').textContent='Ready when you are.';return;
  }
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
- $('thumbControls').style.display='flex';$('fileName').textContent=sourceFile.name||'Photo selected';
+ $('thumbControls').style.display='flex';
  $('status').textContent='Photo ready.';
 }
 $('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
