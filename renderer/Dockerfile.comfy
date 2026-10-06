@@ -1,0 +1,18 @@
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv git ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/www-infinity4/ComfyUI.git
+WORKDIR /opt/ComfyUI
+
+RUN python3 -m pip install --break-system-packages -r requirements.txt
+
+EXPOSE 8188
+CMD ["python3","main.py","--listen","0.0.0.0","--port","8188"]
