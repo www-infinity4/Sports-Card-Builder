@@ -544,7 +544,7 @@ Rules:
   gptFieldConfidence:parsed.confidence||{}
  };
 }
-function applyVisionResult(data){
+function applyVisionResult(data,{overwrite=false}={}){
  if(!data)return;
  const title=firstText(data.titleOptions)||'';
  const brand=firstText(data.brandOptions)||'';
@@ -564,12 +564,12 @@ function applyVisionResult(data){
   keywords:Array.isArray(data.keywords)?data.keywords:[]
  };
  CARD_STATE?.applyDetected(detected);
- if(!state().identity.title){
+ if(title&&(overwrite||!state().identity.title)){
   CARD_STATE?.setIdentity('title',title);
   $('cardTitleInput').value=title;
   state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';
  }
- if(!state().identity.brand){
+ if(brand&&(overwrite||!state().identity.brand)){
   CARD_STATE?.setIdentity('brand',brand);
   $('cardBrandInput').value=brand;
  }
@@ -577,15 +577,15 @@ function applyVisionResult(data){
   CARD_STATE?.setIdentity('logoText',brand);
   if($('cardLogoInput'))$('cardLogoInput').value=brand;
  }
- if(context&&!state().identity.context){
+ if(context&&(overwrite||!state().identity.context)){
   CARD_STATE?.setIdentity('context',context);
   if($('cardContextInput'))$('cardContextInput').value=context;
  }
- if(series&&!state().identity.series){
+ if(series&&(overwrite||!state().identity.series)){
   CARD_STATE?.setIdentity('series',series);
   $('cardSeriesInput').value=series;
  }
- if(date&&!state().identity.dateText){
+ if(date&&(overwrite||!state().identity.dateText)){
   CARD_STATE?.setIdentity('dateText',date);
   $('cardDateInput').value=date;
  }
@@ -798,12 +798,18 @@ async function setPhoto(file){
  // blank or stale fields. A read failure still leaves the user able to create.
  imageReadPromise=(async()=>{
   try{
-   const visionRaw=await readUploadedImage(file).catch(()=>null);
+   const visionRaw=await readUploadedImage(file);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    const normalizedVision=normalizeVisionPayload(visionRaw||{});
+
+   // Put every supported AI-read fact into the visible fields immediately.
+   // GPT then acts as manager and refines/organizes those same facts.
+   applyVisionResult(normalizedVision,{overwrite:true});
+   $('status').textContent='AI image data received. GPT is organizing the fields…';
+
    const vision=await completeVisionIdentity(normalizedVision);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
-   applyVisionResult(vision);
+   applyVisionResult(vision,{overwrite:true});
 
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
    const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
@@ -822,8 +828,12 @@ async function setPhoto(file){
    $('status').textContent='GPT image read stopped: '+String(error?.message||error||'unknown image-read error')+'. No fake fallback data was inserted.';
   }finally{
    if(generation===photoReadGeneration&&sourceFile===file){
-    imageReadState='ready';
-    setCreateAvailability(true);
+    if(imageReadState==='error'){
+     setCreateAvailability(true,'Retry & Create');
+    }else{
+     imageReadState='ready';
+     setCreateAvailability(true);
+    }
    }
   }
  })();
@@ -1374,11 +1384,17 @@ async function createCard(count=1,mode='original'){
  // Do not race the image reader. The first render should use the data that
  // appeared in the fields, not a blank snapshot captured milliseconds earlier.
  if(imageReadState==='reading'){
-  $('status').textContent='Finishing the image read before building…';
-  await Promise.race([
-   imageReadPromise.catch(()=>{}),
-   new Promise(resolve=>setTimeout(resolve,12000))
-  ]);
+  $('status').textContent='Finishing the AI image read before building…';
+  await imageReadPromise;
+ }
+ if(imageReadState==='error'){
+  $('status').textContent='Retrying the AI image read before Create…';
+  const raw=await readUploadedImage(sourceFile);
+  const normalized=normalizeVisionPayload(raw||{});
+  applyVisionResult(normalized,{overwrite:true});
+  const refined=await completeVisionIdentity(normalized);
+  applyVisionResult(refined,{overwrite:true});
+  imageReadState='ready';
  }
  const freeform=$('message').value.trim();
 
@@ -1461,7 +1477,7 @@ $('retryBtn').addEventListener('click',async()=>{
    $('reviewStatus').innerHTML='<strong>Re-reading the uploaded image…</strong>';
    const raw=await readUploadedImage(sourceFile);
    const vision=await completeVisionIdentity(normalizeVisionPayload(raw));
-   applyVisionResult(vision);
+   applyVisionResult(vision,{overwrite:true});
    await updateReviewPanel(results[activeResult]||results.at(-1)||'');
   }
   return;
