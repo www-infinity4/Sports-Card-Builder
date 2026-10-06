@@ -169,11 +169,48 @@ function renderVariationBar(){
  bar.style.display='flex';
 }
 
+function reviewRequest(){
+ const s=state(),issues=[];
+ const title=(s.identity.title||s.detected.title||'').trim();
+ if(!title)issues.push('title');
+ if(s.selections.useBrand&&!s.identity.brand.trim())issues.push('brand');
+ if(s.selections.useLogo&&!s.identity.logoText.trim())issues.push('logo');
+ const complete=issues.length===0;
+ return {complete,issues,title};
+}
+
+function updateReviewPanel(){
+ const review=reviewRequest();
+ const status=$('reviewStatus');
+ const primary=$('retryBtn');
+ const layout=$('tightenBtn');
+ const variation=$('moreBtn');
+ const back=$('backBtn');
+ if(!review.complete){
+  const names=review.issues.map(x=>x==='title'?'title':x==='brand'?'brand':'logo').join(', ');
+  status.innerHTML='<strong>Request needs '+names+'.</strong> Add the missing identity details before asking for another render.';
+  primary.textContent='Complete Details';
+  primary.dataset.action='details';
+  layout.style.display='none';
+  variation.style.display='none';
+ }else{
+  status.innerHTML='<strong>Request is complete.</strong> Keep the content locked and choose what Oracle should improve.';
+  primary.textContent='Improve Style';
+  primary.dataset.action='style';
+  layout.textContent='Improve Layout';
+  layout.style.display='inline-block';
+  variation.textContent='New Variation';
+  variation.style.display='inline-block';
+ }
+ back.style.display=state().selections.buildBack?'inline-block':'none';
+ $('reviewPanel').style.display='block';
+}
+
 async function showResult(index){
  const src=results[index];if(!src)return;
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
- renderVariationBar();
+ renderVariationBar();updateReviewPanel();
 }
 
 async function finishOutput(out){
@@ -188,9 +225,9 @@ async function finishOutput(out){
 
 function variationPrompt(plan,kind,index=0){
  const base=plan.renderPrompt;
- if(kind==='retry') return base+' Create a new independent render of the same design. Preserve every hard requirement while allowing natural generative differences.';
- if(kind==='tighten') return base+' TIGHTEN this design: preserve all hard requirements and successful creative ideas, but improve crop, spacing, border discipline, hierarchy, print realism, typography zones and overall restraint. Remove unnecessary clutter. Do not make it generic.';
- if(kind==='more') return base+' Create a sibling variation that clearly belongs to the same card family and preserves the best visual language, materials and rarity feel, while inventing one tasteful new premium detail.';
+ if(kind==='style') return base+' IMPROVE STYLE ONLY: keep the subject, identity, requested border, material, card number, 1/1 policy and all locked details. Raise the art direction to a premium contemporary collectible standard with stronger visual hierarchy, more intentional graphic relationships, better material realism and one tasteful high-end detail. Do not add text or change the subject.';
+ if(kind==='layout') return base+' IMPROVE LAYOUT ONLY: preserve the selected style and all locked details, but improve crop, spacing, subject scale, border discipline, negative space, balance and card proportions. Remove awkward empty areas and accidental framing. Do not add text or change the subject.';
+ if(kind==='variation') return base+' Create a new sibling variation of the same approved request. Preserve every locked detail and subject identity, but explore one different premium composition while staying in the same card family.';
  const modes=[
   'Variation 1: faithful execution. Follow the design plan closely while allowing tasteful card-making judgment.',
   'Variation 2: premium execution. Preserve every hard requirement, but allow one or two valuable collector-grade inventions such as rarity treatment, foil detail, corner device or print finish.',
@@ -784,7 +821,7 @@ async function createCard(count=1,mode='original'){
 
 async function buildAction(kind){
  if(!lastBlob||!lastPlan||!lastDescription){$('status').textContent='Create a card first.';return}
- setBusy(true,kind==='tighten'?'Tightening…':'Creating…');
+ setBusy(true,kind==='style'?'Improving style…':kind==='layout'?'Improving layout…':'Creating…');
  $('buildMonitor').style.display='block';$('resultImage').style.display='none';$('resultActions').style.display='none';resetMonitor();
  stage('prepare','done');stage('plan','done');
  try{
@@ -799,13 +836,21 @@ async function buildAction(kind){
 $('make').addEventListener('click',()=>createCard(1,'original'));
 $('buildLike').addEventListener('click',()=>createCard(1,'reference'));
 $('make3').addEventListener('click',()=>createCard(3,referenceFile?'reference':'original'));
-$('retryBtn').addEventListener('click',()=>buildAction('retry'));
-$('tightenBtn').addEventListener('click',()=>buildAction('tighten'));
-$('moreBtn').addEventListener('click',()=>buildAction('more'));
+$('retryBtn').addEventListener('click',()=>{
+ if($('retryBtn').dataset.action==='details'){
+  openBuilderStep('identity');
+  $('customFields').classList.add('open');
+  $('composer').scrollIntoView({behavior:'smooth',block:'start'});
+  return;
+ }
+ buildAction('style');
+});
+$('tightenBtn').addEventListener('click',()=>buildAction('layout'));
+$('moreBtn').addEventListener('click',()=>buildAction('variation'));
 $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
  results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';CARD_STATE?.reset();$('message').value='';builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
- $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
+ $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
