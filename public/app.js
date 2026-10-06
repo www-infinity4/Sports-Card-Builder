@@ -1,5 +1,6 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const COMFY_RENDERER_ENDPOINT=SERVICE+'/v1/comfy-image';
+const CODE_PHI_INSPECT='https://orange-brook-a2ac.marvaseater.workers.dev/code-phi/inspect';
 const $=id=>document.getElementById(id);
 const BUILDER=window.OracleBuilderTools||null;
 const ABILITY_ROUTER=window.OracleAbilityRouter||null;
@@ -217,10 +218,39 @@ async function dataURIToBlob(dataURI){
  return await r.blob();
 }
 
+async function inspectRenderedCardWithCodePhi(renderedBlob){
+ try{
+  const preview=await prepareTransportImage(renderedBlob,{max:420,maxBytes:180000});
+  const data=await blobToDataURI(preview);
+  const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html,body{margin:0;background:#151515;min-height:100%}main{min-height:100vh;display:grid;place-items:start center;padding:10px}img{display:block;width:min(100%,384px);height:auto}</style></head><body><main><img src="'+data+'" alt="Finished collectible card preview"></main></body></html>';
+  const response=await fetchWithTimeout(CODE_PHI_INSPECT,{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({html,query:'Oracle collectible card visual verification'})
+  },35000);
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok||!payload.ok)return null;
+  return {
+   summary:String(payload.summary||''),
+   issues:Array.isArray(payload.issues)?payload.issues.slice(0,20):[],
+   inspection:payload.inspection?{
+    consoleErrors:payload.inspection.consoleErrors||[],
+    pageErrors:payload.inspection.pageErrors||[],
+    failedRequests:payload.inspection.failedRequests||[],
+    diagnostics:payload.inspection.diagnostics||{},
+    viewport:payload.inspection.diagnostics?.viewport||null
+   }:null
+  };
+ }catch{return null}
+}
+
 async function askOracleToReview(src){
  try{
   const renderedBlob=await dataURIToBlob(src);
-  const visual=await readUploadedImage(renderedBlob).catch(()=>null);
+  const [visual,browserInspection]=await Promise.all([
+   readUploadedImage(renderedBlob).catch(()=>null),
+   inspectRenderedCardWithCodePhi(renderedBlob).catch(()=>null)
+  ]);
   const s=state();
   const input=`You are Oracle, a senior collectible-card art director reviewing ONE finished card image.
 
@@ -236,6 +266,9 @@ ${JSON.stringify(s.selections)}
 RENDERED-CARD VISION READ:
 ${JSON.stringify(visual||{})}
 
+CODE PHI CLOUD BROWSER INSPECTION:
+${JSON.stringify(browserInspection||{})}
+
 DESIGN PLAN:
 ${JSON.stringify(lastPlan||{})}
 
@@ -250,14 +283,17 @@ Return ONLY JSON:
 }
 
 Rules:
-- Judge the finished card, not a generic template.
+- Judge this finished render, not a generic template.
+- Treat Code Phi browser errors, broken images and overflow as hard defects.
+- Use the rendered-card vision read to judge what is visibly present; do not assume requested text or branding actually rendered.
+- Strongly penalize giant dead space, tiny title/logo treatment, generic picture-frame appearance, weak subject scale, awkward crop, unreadable or duplicated text, and collector marks that collide with content.
 - Do not ask the user to fill title, brand, or logo; Auto Build owns those.
 - Preserve exact subject identity and user photo.
-- If visible text looks garbled or duplicated, say so and make the correction explicit.
+- If visible text looks garbled or duplicated, make the correction explicit.
 - If title/logo placement is missing or weak, make that the highest priority.
 - Keep each button label under 22 characters.
 - Never invent a real athlete or brand unsupported by the locked request or vision read.`;
-  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'finished-card-critic'}})},7000);
+  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'finished-card-critic',codePhiBrowser:Boolean(browserInspection)}})},10000);
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.ok)return null;
   const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
