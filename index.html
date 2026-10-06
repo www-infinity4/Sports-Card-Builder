@@ -118,8 +118,14 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
 .buildStep.error{border-color:#d9b9b9;background:#fff5f5}
 .buildStep.error .dot{background:#b96969;box-shadow:0 0 0 5px #f4dfdf}
 .buildStep.error .state{color:#aa6060}
+.buildStep.optional{color:#687482;border-color:#dce3ea;background:rgba(255,255,255,.55)}
+.buildStep.optional .dot{background:#a4adb6;box-shadow:0 0 0 4px rgba(226,232,237,.75)}
+.buildStep.optional .state{color:#778391}
 @keyframes pulse{50%{transform:scale(1.28)}}
 .buildNote{margin-top:14px;text-align:center;color:#75808c;font-size:.82rem}
+.buildDiagnostics{margin-top:12px;border-top:1px solid #d6e0e8;padding-top:10px;color:#63717d;font-size:.76rem}
+.buildDiagnostics summary{cursor:pointer;font-weight:850}
+.buildDiagnostics pre{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
 .variationBar{display:none;gap:8px;overflow-x:auto;padding:10px 2px 2px;margin-top:10px;align-items:center}
 .variationThumb{flex:0 0 68px;width:68px;height:92px;border:1px solid #c8d4de;border-radius:12px;background:#fff;padding:3px;overflow:hidden;cursor:pointer;box-shadow:0 5px 14px rgba(60,78,94,.08)}
 .variationThumb img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px}
@@ -224,7 +230,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <button id="collectorContinue" class="stepContinue" type="button">Continue</button>
      </div>
      <div class="controlBlock" data-builder-step="identity">
-      <div class="controlTitle">GPT image read</div>
+      <div class="controlTitle">Image evidence</div>
       <button class="controlSummary" type="button"></button>
       <div class="identityActions" style="display:none">
        <button id="showNameToggle" class="choiceBtn active" type="button">Name On</button>
@@ -280,13 +286,23 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
     <div id="buildMonitor" class="buildMonitor" aria-live="polite">
      <div class="buildTitle">Building your card</div>
      <div class="buildSteps">
+      <div class="buildStep" data-stage="imageReceived"><span class="dot"></span><span>Image received</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="imageRead"><span class="dot"></span><span>Image read</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="webContext"><span class="dot"></span><span>Web context searched</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="imageComparison"><span class="dot"></span><span>Image comparison</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="evidenceMerged"><span class="dot"></span><span>Evidence merged</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="fieldsPrefilled"><span class="dot"></span><span>Fields prefilled</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="templateSelected"><span class="dot"></span><span>Template selected</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="designSpec"><span class="dot"></span><span>Design spec compiled</span><span class="state">Waiting</span></div>
       <div class="buildStep" data-stage="prepare"><span class="dot"></span><span>Preparing photo</span><span class="state">Waiting</span></div>
-      <div class="buildStep" data-stage="plan"><span class="dot"></span><span>GPT card plan</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="plan"><span class="dot"></span><span>GPT enrichment / plan</span><span class="state">Waiting</span></div>
       <div class="buildStep" data-stage="render"><span class="dot"></span><span>Rendering card</span><span class="state">Waiting</span></div>
-      <div class="buildStep" data-stage="finish"><span class="dot"></span><span>Finishing</span><span class="state">Waiting</span></div>
-      <div class="buildStep" data-stage="iterate"><span class="dot"></span><span>GPT iteration</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="finish"><span class="dot"></span><span>Exact text composition</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="iterate"><span class="dot"></span><span>Visual validation</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="complete"><span class="dot"></span><span>Complete</span><span class="state">Waiting</span></div>
      </div>
      <div id="buildNote" class="buildNote">Starting…</div>
+     <details class="buildDiagnostics"><summary>Build diagnostics (service data only)</summary><pre id="buildDiagnostics">{}</pre></details>
     </div>
     <img id="resultImage" class="result" alt="Generated collectible card">
    </div>
@@ -309,14 +325,18 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
  </main>
 </div>
 <script src="./public/card-state.js?v=20261006-3"></script>
+<script src="./public/card-evidence.js?v=20261006-1"></script>
+<script src="./public/cloudflare-card-services.js?v=20261006-1"></script>
 <script src="./public/card-numbering.js?v=20261005-1"></script>
 <script src="./public/card-templates.js?v=20261005-4"></script>
 <script src="./public/card-template-db.js?v=20261006-1"></script>
-<script src="./public/card-back.js?v=20261005-1"></script>
+<script src="./public/card-data-stream.js?v=20261006-1"></script>
+<script src="./public/card-back.js?v=20261006-1"></script>
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261006-4"></script>
 <script src="./public/ability-router.js?v=20261006-5"></script>
 <script src="./public/auto-card.js?v=20261006-1"></script>
-<script src="./public/app.js?v=20261006-58"></script>
+<script src="./public/card-studio-api.js?v=20261006-1"></script>
+<script src="./public/app.js?v=20261006-62"></script>
 </body>
 </html>
