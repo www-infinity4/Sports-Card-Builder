@@ -89,6 +89,14 @@ function completeBuilderStep(name,summary,next){
 function activateChoice(group,value,advance=true){
  document.querySelectorAll('[data-choice-group="'+group+'"] .choiceBtn').forEach(b=>b.classList.toggle('active',b.dataset.value===value));
  CARD_STATE?.setSelection(group,value);
+ if(group==='style'){
+  const styleBrand={topps:'Topps',donruss:'Donruss',fleer:'Fleer',flagship:'Flagship',upperdeck:'Upper Deck'}[value]||'';
+  if(styleBrand&&!state().identity.brand){
+   CARD_STATE?.setIdentity('brand',styleBrand);CARD_STATE?.setIdentity('logoText',styleBrand);
+   if($('cardBrandInput'))$('cardBrandInput').value=styleBrand;
+   if($('cardLogoInput'))$('cardLogoInput').value=styleBrand;
+  }
+ }
  updateBuilderSummary();
  if(advance){
   const next=group==='style'?'border':group==='border'?'finish':group==='finish'?'collector':null;
@@ -1136,8 +1144,8 @@ async function createCard(count=1,mode='original'){
  try{
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
   stage('prepare','active','Preparing a high-quality reference image…');
-  lastBlob=await resizeImage(sourceFile);
-  lastReferenceBlob=mode==='reference'?await resizeImage(referenceFile):null;
+  lastBlob=sourceFile;
+  lastReferenceBlob=mode==='reference'?referenceFile:null;
   lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
   buildMode=mode;
   stage('prepare','done');
