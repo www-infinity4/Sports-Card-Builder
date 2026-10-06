@@ -1297,14 +1297,38 @@ async function renderWithComfy(blob,prompt){
  return d;
 }
 
+async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
+ const form=new FormData();
+ form.append('image',blob,blob?.name||'subject.jpg');
+ if(designBlob)form.append('design_reference',designBlob,designBlob?.name||'design-reference.jpg');
+ form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.'));
+ form.append('request',String(description||prompt||'').slice(0,1800));
+ const r=await fetchWithTimeout(SERVICE+'/v1/image',{method:'POST',body:form},150000);
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok){const e=new Error(String(d.error||'workers_ai_image_failed'));e.code=String(d.error||'');throw e}
+ return d;
+}
+
 async function renderCard(blob,prompt,description,designBlob=null){
- // Primary path: let the connected image renderer execute the GPT-authored card plan.
- // The exact-source compositor remains a safe fallback if the renderer is unavailable.
+ // Primary path is the already-live Cloudflare Workers AI reference-image renderer.
+ // Comfy remains a second path when an external GPU renderer is actually configured.
+ // The deterministic compositor is the last-resort safety fallback only.
  try{
-  return await renderWithComfy(blob,prompt||description||'Create a polished collectible trading card from the uploaded image.');
- }catch(e){
-  console.warn('renderer fallback',e);
-  return await renderExactCard(blob);
+  const out=await renderWithWorkersAI(blob,prompt,description,designBlob);
+  out.rendererPath='workers-ai-reference-image';
+  return out;
+ }catch(workersError){
+  console.warn('Workers AI renderer unavailable',workersError);
+  try{
+   const out=await renderWithComfy(blob,prompt||description||'Create a polished collectible trading card from the uploaded image.');
+   out.rendererPath='comfy';
+   return out;
+  }catch(comfyError){
+   console.warn('Comfy renderer unavailable; using exact-source fallback',comfyError);
+   const out=await renderExactCard(blob);
+   out.rendererPath='exact-source-fallback';
+   return out;
+  }
  }
 }
 
