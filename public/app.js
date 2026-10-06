@@ -468,8 +468,21 @@ function normalizeVisionPayload(raw={}){
   keywords:[...new Set([
    ...asTextArray(all.keywords),
    ...asTextArray(all.labels),
-   ...asTextArray(all.tags)
-  ])]
+   ...asTextArray(all.tags),
+   ...asTextArray(all.visualTraits),
+   ...asTextArray(all.eraClues),
+   ...asTextArray(all.mediaClues),
+   ...asTextArray(all.objects),
+   ...asTextArray(all.colors),
+   ...asTextArray(all.environment)
+  ])],
+  visualTraits:asTextArray(all.visualTraits),
+  eraClues:asTextArray(all.eraClues),
+  mediaClues:asTextArray(all.mediaClues),
+  objects:asTextArray(all.objects),
+  colors:asTextArray(all.colors),
+  environment:asTextArray(all.environment),
+  semanticDescription:String(all.semanticDescription||all.description||'').trim()
  };
 }
 function titleCase(value){
@@ -481,6 +494,9 @@ async function completeVisionIdentity(data={}){
 
 RAW IMAGE READER:
 ${JSON.stringify(data)}
+
+USER-PROVIDED SEMANTIC HINT (may be blank; if present it is authoritative user context, not a visual guess):
+${String($('message')?.value||'').trim()}
 
 Return ONLY JSON:
 {
@@ -496,7 +512,8 @@ Return ONLY JSON:
 
 Rules:
 - If the evidence is uncertain, keep the factual field blank rather than inventing it.
-- subjectType and series may be useful generic descriptions supported by the image-reader evidence.
+- subjectType and series may use the reader's visualTraits, eraClues, mediaClues, objects, colors, environment and semanticDescription.
+- Use a user-provided semantic hint when it directly names or describes the intended subject/context.
 - Never substitute a made-up person, brand, team, date, or title.`;
 
  async function attempt(extra='',task='image-data-to-fields'){
@@ -769,6 +786,35 @@ function setCreateAvailability(ready,label='Create Card'){
  if($('make')){$('make').disabled=!ready;$('make').textContent=label}
 }
 
+async function retryCurrentImageRead(){
+ if(!sourceFile)return;
+ const generation=photoReadGeneration;
+ imageReadState='reading';
+ if($('retryReadBtn'))$('retryReadBtn').style.display='none';
+ $('status').textContent='Retrying GPT image read…';
+ try{
+  const visionRaw=await readUploadedImage(sourceFile);
+  if(generation!==photoReadGeneration)return;
+  const normalizedVision=normalizeVisionPayload(visionRaw||{});
+  applyVisionResult(normalizedVision,{overwrite:true});
+  const vision=await completeVisionIdentity(normalizedVision);
+  if(generation!==photoReadGeneration)return;
+  applyVisionResult(vision,{overwrite:true});
+  imageReadState='ready';
+  const bits=[
+   state().identity.title,
+   state().identity.context,
+   state().identity.brand,
+   state().identity.series
+  ].filter(Boolean);
+  $('status').textContent=bits.length?'GPT image data ready: '+bits.join(' · '):'GPT image read finished. Add any missing detail you want in the fields.';
+ }catch(error){
+  imageReadState='error';
+  if($('retryReadBtn'))$('retryReadBtn').style.display='inline-block';
+  $('status').textContent='Image read failed: '+String(error?.message||error||'unknown error')+'. Create Card is still available.';
+ }
+}
+
 async function setPhoto(file){
  const generation=++photoReadGeneration;
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
@@ -791,8 +837,9 @@ async function setPhoto(file){
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
  imageReadState='reading';
- setCreateAvailability(false,'Reading image…');
- $('status').textContent='Image uploaded. GPT is reading it and filling the card data…';
+ setCreateAvailability(true,'Create Card');
+ if($('retryReadBtn'))$('retryReadBtn').style.display='none';
+ $('status').textContent='Image uploaded. GPT is reading it and filling the card data. You can create now or wait for the read.';
 
  // The first build waits for this read so the renderer cannot race ahead with
  // blank or stale fields. A read failure still leaves the user able to create.
@@ -810,6 +857,7 @@ async function setPhoto(file){
    const vision=await completeVisionIdentity(normalizedVision);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    applyVisionResult(vision,{overwrite:true});
+   if($('retryReadBtn'))$('retryReadBtn').style.display='none';
 
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
    const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
@@ -825,15 +873,12 @@ async function setPhoto(file){
   }catch(error){
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    imageReadState='error';
-   $('status').textContent='GPT image read stopped: '+String(error?.message||error||'unknown image-read error')+'. No fake fallback data was inserted.';
+   if($('retryReadBtn'))$('retryReadBtn').style.display='inline-block';
+   $('status').textContent='GPT image read stopped: '+String(error?.message||error||'unknown image-read error')+'. Create Card is still available.';
   }finally{
    if(generation===photoReadGeneration&&sourceFile===file){
-    if(imageReadState==='error'){
-     setCreateAvailability(true,'Retry & Create');
-    }else{
-     imageReadState='ready';
-     setCreateAvailability(true);
-    }
+    if(imageReadState!=='error')imageReadState='ready';
+    setCreateAvailability(true,'Create Card');
    }
   }
  })();
@@ -1383,19 +1428,8 @@ async function createCard(count=1,mode='original'){
 
  // Do not race the image reader. The first render should use the data that
  // appeared in the fields, not a blank snapshot captured milliseconds earlier.
- if(imageReadState==='reading'){
-  $('status').textContent='Finishing the AI image read before building…';
-  await imageReadPromise;
- }
- if(imageReadState==='error'){
-  $('status').textContent='Retrying the AI image read before Create…';
-  const raw=await readUploadedImage(sourceFile);
-  const normalized=normalizeVisionPayload(raw||{});
-  applyVisionResult(normalized,{overwrite:true});
-  const refined=await completeVisionIdentity(normalized);
-  applyVisionResult(refined,{overwrite:true});
-  imageReadState='ready';
- }
+ // Create is independent from Retry Read. Use whatever verified fields are currently available.
+ // A background image read may continue and improve the fields for the next build.
  const freeform=$('message').value.trim();
 
  setBusy(true,count===3?'Creating 3…':'Creating…');
@@ -1467,7 +1501,7 @@ async function buildAction(kind,instruction=''){
   if(results.length)await showResult(activeResult>=0?activeResult:results.length-1);
  }finally{setBusy(false)}
 }
-$('make').addEventListener('click',()=>createCard(1,'original'));
+$('retryReadBtn')?.addEventListener('click',retryCurrentImageRead);\n$('make').addEventListener('click',()=>createCard(1,'original'));
 $('buildLike').addEventListener('click',()=>createCard(1,'reference'));
 $('make3').addEventListener('click',()=>createCard(3,referenceFile?'reference':'original'));
 $('retryBtn').addEventListener('click',async()=>{
