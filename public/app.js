@@ -258,7 +258,7 @@ async function askOracleToReview(src){
  try{
   const renderedBlob=await dataURIToBlob(src);
   const [visual,browserInspection]=await Promise.all([
-   readUploadedImage(renderedBlob).catch(()=>null),
+   readUploadedImage(renderedBlob,{review:true}).catch(()=>null),
    inspectRenderedCardWithCodePhi(renderedBlob).catch(()=>null)
   ]);
   const s=state();
@@ -452,11 +452,12 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
 }
 
 
-async function readUploadedImage(blob){
+async function readUploadedImage(blob,{review=false}={}){
  const transport=await prepareTransportImage(blob,{max:1200,maxBytes:2_800_000});
  const form=new FormData();
  form.append('image',transport,'reader.jpg');
- const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},20000);
+ if(review)form.append('purpose','review');
+ const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},review?22000:45000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
   const e=new Error('Image reader /v1/image-read '+r.status+': '+String(d.error||d.detail||'image_read_failed'));
@@ -1631,7 +1632,7 @@ async function createCard(count=1,mode='original'){
    stage('prepare','active','Reading the exact uploaded image and visible text first…');
    await Promise.race([
     imageReadPromise,
-    new Promise(resolve=>setTimeout(resolve,22000))
+    new Promise(resolve=>setTimeout(resolve,46000))
    ]);
   }
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
