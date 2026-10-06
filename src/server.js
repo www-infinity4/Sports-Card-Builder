@@ -58,25 +58,42 @@ function sendJson(res, status, payload) {
 }
 
 function serveStatic(req, res) {
-  const file = req.url === '/app.js' ? 'app.js' : 'index.html';
-  const full = path.join(PUBLIC_DIR, file);
-  fs.readFile(full, 'utf8', (err, content) => {
+  let pathname='/';
+  try { pathname=new URL(req.url,'http://localhost').pathname; } catch {}
+  const requested=pathname==='/'?'index.html':pathname.replace(/^\/+/, '');
+  const normalized=path.normalize(requested).replace(/^(\.\.(\/|\\|$))+/, '');
+  const full=path.join(PUBLIC_DIR, normalized);
+  if (!full.startsWith(PUBLIC_DIR + path.sep) && full !== path.join(PUBLIC_DIR,'index.html')) {
+    res.writeHead(403);
+    return res.end('Forbidden');
+  }
+  fs.readFile(full, (err, content) => {
     if (err) {
       res.writeHead(404);
       return res.end('Not found');
     }
-
-    const contentType = file.endsWith('.js')
-      ? 'application/javascript; charset=utf-8'
-      : 'text/html; charset=utf-8';
-
-    res.writeHead(200, { 'Content-Type': contentType });
+    const ext=path.extname(full).toLowerCase();
+    const types={
+      '.html':'text/html; charset=utf-8',
+      '.js':'application/javascript; charset=utf-8',
+      '.css':'text/css; charset=utf-8',
+      '.json':'application/json; charset=utf-8',
+      '.png':'image/png',
+      '.jpg':'image/jpeg',
+      '.jpeg':'image/jpeg',
+      '.webp':'image/webp',
+      '.svg':'image/svg+xml'
+    };
+    res.writeHead(200, {
+      'Content-Type': types[ext] || 'application/octet-stream',
+      'Cache-Control': ext==='.html' ? 'no-cache' : 'public, max-age=300'
+    });
     res.end(content);
   });
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET' && (req.url === '/' || req.url === '/app.js')) {
+  if (req.method === 'GET' && !req.url.startsWith('/api/')) {
     return serveStatic(req, res);
   }
 
