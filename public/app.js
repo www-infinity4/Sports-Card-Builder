@@ -1,6 +1,7 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
 const COMFY_RENDERER_ENDPOINT=SERVICE+'/v1/comfy-image';
 const CODE_PHI_INSPECT='https://orange-brook-a2ac.marvaseater.workers.dev/code-phi/inspect';
+const WEB_CONTEXT_SEARCH='https://orange-brook-a2ac.marvaseater.workers.dev/search';
 const $=id=>document.getElementById(id);
 const BUILDER=window.OracleBuilderTools||null;
 const ABILITY_ROUTER=window.OracleAbilityRouter||null;
@@ -488,7 +489,44 @@ function normalizeVisionPayload(raw={}){
 function titleCase(value){
  return String(value||'').trim().replace(/\b\w/g,c=>c.toUpperCase());
 }
-async function completeVisionIdentity(data={}){
+async function fetchWebContextForImage(data={}){
+ const visible=asTextArray(data.visibleText).slice(0,10);
+ const hint=String($('message')?.value||'').trim();
+ // Web lookup is evidence expansion, not face/character recognition.
+ // Only search when we have textual evidence from the image or explicit user context.
+ if(!visible.length&&!hint)return [];
+ const querySeed=[hint,visible.join(' ')].filter(Boolean).join(' ').trim();
+ if(!querySeed)return [];
+ let query=querySeed;
+ try{
+  const planner=`Turn this image evidence into ONE concise web-search query for source/context lookup.
+USER HINT: ${hint||'(none)'}
+VISIBLE IMAGE TEXT: ${visible.join(' | ')||'(none)'}
+SEMANTIC DESCRIPTION: ${String(data.semanticDescription||data.description||'').slice(0,800)}
+Return only the query. Do not infer a real person's or fictional character's identity from appearance; use only the supplied text/hint.`;
+  const rr=await fetchWithTimeout(SERVICE+'/v1/chat',{
+   method:'POST',
+   headers:{'Content-Type':'application/json','Accept':'application/json'},
+   body:JSON.stringify({input:planner,context:{application:'Oracle Card Studio',task:'image-web-context-query'}})
+  },7000);
+  const dd=await rr.json().catch(()=>({}));
+  const q=String(dd.output||dd.output_text||dd.answer||'').replace(/^["']|["']$/g,'').trim();
+  if(rr.ok&&dd.ok&&q)query=q.slice(0,240);
+ }catch{}
+ try{
+  const u=new URL(WEB_CONTEXT_SEARCH);
+  u.search=new URLSearchParams({q:query,format:'json',safesearch:'1'});
+  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},9000);
+  const json=await res.json().catch(()=>({}));
+  return (Array.isArray(json.results)?json.results:[]).slice(0,8).map(x=>({
+   title:String(x.title||'').slice(0,220),
+   snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,500),
+   url:String(x.url||'').slice(0,500)
+  })).filter(x=>x.title||x.snippet);
+ }catch{return []}
+}
+
+async function completeVisionIdentity(data={},webContext=[]){
  const visible=(Array.isArray(data.visibleText)?data.visibleText:[]).map(v=>String(v||'').trim()).filter(Boolean);
  const inputBase=`You are the senior image-data interpreter for a collectible-card builder. Convert the raw image-reader result into editable fields. Use ONLY evidence present in the reader payload. Do not identify an unknown real person from appearance alone. Do not invent a team, movie, brand, date, product, band, athlete, actor, logo, or event. Visible text may support a field only when it clearly functions as a title/name/logo rather than background noise.
 
@@ -497,6 +535,9 @@ ${JSON.stringify(data)}
 
 USER-PROVIDED SEMANTIC HINT (may be blank; if present it is authoritative user context, not a visual guess):
 ${String($('message')?.value||'').trim()}
+
+WEB CONTEXT RESULTS (source/context lookup from visible text or the user's explicit hint; never from face recognition):
+${JSON.stringify(webContext)}
 
 Return ONLY JSON:
 {
@@ -514,6 +555,8 @@ Rules:
 - If the evidence is uncertain, keep the factual field blank rather than inventing it.
 - subjectType and series may use the reader's visualTraits, eraClues, mediaClues, objects, colors, environment and semanticDescription.
 - Use a user-provided semantic hint when it directly names or describes the intended subject/context.
+- Web results may strengthen context, brand, series, date/era, source title or media context when they agree with visible text/user hint.
+- Never identify a real person or fictional/TV/movie character from appearance alone.
 - Never substitute a made-up person, brand, team, date, or title.`;
 
  async function attempt(extra='',task='image-data-to-fields'){
@@ -797,7 +840,8 @@ async function retryCurrentImageRead(){
   if(generation!==photoReadGeneration)return;
   const normalizedVision=normalizeVisionPayload(visionRaw||{});
   applyVisionResult(normalizedVision,{overwrite:true});
-  const vision=await completeVisionIdentity(normalizedVision);
+  const webContext=await fetchWebContextForImage(normalizedVision);
+  const vision=await completeVisionIdentity(normalizedVision,webContext);
   if(generation!==photoReadGeneration)return;
   applyVisionResult(vision,{overwrite:true});
   imageReadState='ready';
@@ -852,9 +896,11 @@ async function setPhoto(file){
    // Put every supported AI-read fact into the visible fields immediately.
    // GPT then acts as manager and refines/organizes those same facts.
    applyVisionResult(normalizedVision,{overwrite:true});
-   $('status').textContent='AI image data received. GPT is organizing the fields…';
+   $('status').textContent='AI image data received. Checking visible text and web context…';
+   const webContext=await fetchWebContextForImage(normalizedVision);
+   $('status').textContent=webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
 
-   const vision=await completeVisionIdentity(normalizedVision);
+   const vision=await completeVisionIdentity(normalizedVision,webContext);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    applyVisionResult(vision,{overwrite:true});
    if($('retryReadBtn'))$('retryReadBtn').style.display='none';
@@ -1511,7 +1557,9 @@ $('retryBtn').addEventListener('click',async()=>{
   if(sourceFile){
    $('reviewStatus').innerHTML='<strong>Re-reading the uploaded image…</strong>';
    const raw=await readUploadedImage(sourceFile);
-   const vision=await completeVisionIdentity(normalizeVisionPayload(raw));
+   const normalized=normalizeVisionPayload(raw);
+   const webContext=await fetchWebContextForImage(normalized);
+   const vision=await completeVisionIdentity(normalized,webContext);
    applyVisionResult(vision,{overwrite:true});
    await updateReviewPanel(results[activeResult]||results.at(-1)||'');
   }
