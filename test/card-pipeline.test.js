@@ -95,6 +95,20 @@ test('three-card iteration completes with GPT unavailable', async () => {
   assert.deepEqual(busy, [true, false]);
 });
 
+test('evidence-first pipeline captures each validated front and automatically finishes its back',async()=>{
+ const captured=[],backs=[];
+ const {context}=createHarness({
+  captureStudioCard:(front,iteration)=>captured.push({front,iteration}),
+  state:()=>({selections:{buildBack:true}}),
+  buildBackCard:async options=>backs.push(options)
+ });
+ await context.createCard(3);
+ assert.equal(captured.length,3);
+ assert.equal(backs.length,3);
+ assert.deepEqual(backs.map(b=>b.index),[0,1,2]);
+ assert.ok(backs.every(b=>b.display===false));
+});
+
 test('a second-card render failure still displays the first finished card', async () => {
   let renders = 0;
   let displayed;

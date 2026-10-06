@@ -8,6 +8,8 @@ const CARD_STATE=window.OracleCardState||null;
 const CARD_NUMBERING=window.OracleCardNumbering||null;
 const CARD_TEMPLATES=window.OracleCardTemplates||null;
 const CARD_BACK=window.OracleCardBack||null;
+const CARD_DATA_STREAM=window.OracleCardDataStream||null;
+const CARD_STUDIO=window.OracleCardStudio||null;
 const CARD_CRITIC=window.OracleCardCritic||null;
 const TEMPLATE_DB=window.OracleTemplateDB||null;
 const TEMPLATE_REF_KEY='oracle-template-refs-v1';
@@ -61,6 +63,8 @@ let lastTemplateRefs=[];
 let cardEvidence=CARD_EVIDENCE?.create()||null;
 let lastTemplateSpec=null;
 let buildDiagnostics={};
+const studioCards=new Map();
+let studioRequest=null;
 
 function resetBuildDiagnostics(){
  buildDiagnostics={buildId:'',startedAt:new Date().toISOString(),pipeline:{},imageReader:{status:'waiting',contract:'full-read-v2'},comparison:{status:'waiting',candidates:0},evidenceConfidence:{},templateId:'',renderer:'',fallbackReason:'',gptPlanner:'waiting',playerIntel:'not-requested',validator:'waiting',capabilities:SERVICES?.capabilities?.()||{}};
@@ -605,7 +609,7 @@ async function updateReviewPanel(src=''){
 
 async function showResult(index,{review=true}={}){
  const src=results[index];if(!src)return;
- if(autoBacks.has(src))backResult=autoBacks.get(src);
+ backResult=autoBacks.get(src)||studioCards.get(src)?.back?.image||'';
  if($('resultHeading'))$('resultHeading').textContent='Finished design';
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
@@ -680,6 +684,9 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
   stage('finish','done');
   stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
   const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
+  recordBuildDiagnostic('renderer',out.rendererPath||'unknown');
+  captureStudioCard(iteration.finished,iteration);
+  if(state().selections.buildBack)await buildBackCard({display:false,index:results.length-1});
   stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
  }
  if(results.length)await showResult(results.length-1,{review:false});
@@ -1829,78 +1836,46 @@ function selectedStats(){
  return hi.find(s=>String(s.season)===target)||hi[0]||(lastIntel?.seasons||[]).slice(-1)[0]||null;
 }
 
-async function buildBackCard(){
+function studioData(){
+ return CARD_DATA_STREAM.build({
+  evidence:cardEvidence,state:state(),intel:lastIntel,template:activeTemplate(),plan:lastPlan,
+  imageReader:lastVision,comparison:lastImageComparison,webMatches:lastWebContext,
+  userOverrides:studioRequest?.userOverrides,
+  cardId:studioRequest?.cardId,setId:studioRequest?.setId,
+  copyrightText:studioRequest?.copyrightText||'',
+  footerText:studioRequest?.footerText??'Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC'
+ });
+}
+function captureStudioCard(front,iteration={}){
+ if(!CARD_STUDIO||!CARD_DATA_STREAM)return;
+ const data=studioData();
+ const artifact=CARD_STUDIO.recordArtifact({
+  id:data.cardId||undefined,setId:data.setId,cardData:data,
+  front:{image:front,templateId:data.templateId,renderPath:buildDiagnostics.renderer||'unknown'},
+  back:{image:'',format:CARD_BACK.formatFor(data),data},
+  evidence:cardEvidence,sources:data.sources,provenance:data.provenance,
+  build:{buildId:buildDiagnostics.buildId,createdAt:new Date().toISOString(),
+   renderer:buildDiagnostics.renderer||'unknown',
+   validation:{status:iteration.critique?'reviewed':'unavailable',critique:iteration.critique||null}}
+ });
+ studioCards.set(front,artifact);
+ return artifact;
+}
+async function buildBackCard({display=true,index=activeResult}={}){
  if(!results.length){$('status').textContent='Create the front first.';return}
- const style=backStyleFor(lastDescription,lastPlan);
- const canvas=document.createElement('canvas');canvas.width=768;canvas.height=1024;
- const ctx=canvas.getContext('2d');
- ctx.fillStyle=style.bg;ctx.fillRect(0,0,768,1024);
- ctx.fillStyle=style.accent;ctx.fillRect(0,0,768,72);
- ctx.fillStyle=style.panel;ctx.fillRect(34,94,700,820);
- ctx.strokeStyle=style.rule;ctx.lineWidth=5;ctx.strokeRect(34,94,700,820);
- ctx.fillStyle=style.ink;ctx.textAlign='left';
- const player=lastIntel?.player||{};
- const stat=selectedStats();
- const backData=CARD_BACK?CARD_BACK.buildData(state(),lastIntel,lastPlan):null;
- const backTitle=backData?.title||player.fullName||state().identity.title||'Featured Card';
- const cardNumber=state().identity.cardNumber||CARD_NUMBERING?.number(backTitle,1)||'CARD-1';
- ctx.font='900 34px Arial';ctx.fillText(backTitle,62,145);
- ctx.textAlign='right';ctx.font='900 18px Arial';ctx.fillText(cardNumber,706,145);ctx.textAlign='left';
- ctx.font='700 17px Arial';ctx.fillText([player.primaryPosition,stat?.team,stat?.season].filter(Boolean).join(' · '),62,176);
- ctx.strokeStyle=style.rule;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(62,195);ctx.lineTo(706,195);ctx.stroke();
-
- ctx.font='900 19px Arial';ctx.fillText(stat?'PLAYER PROFILE':'CARD PROFILE',62,232);
- ctx.font='16px Arial';
- let yy=264;
- const profileLines=(stat?[
-  player.mlbDebutDate?'MLB debut: '+player.mlbDebutDate:'',
-  player.batSide?'Bats: '+player.batSide:'',
-  player.pitchHand?'Throws: '+player.pitchHand:'',
-  player.height?'Height: '+player.height:'',
-  player.weight?'Weight: '+player.weight:''
- ]:[
-  state().identity.brand?'Brand: '+state().identity.brand:'',
-  state().identity.series?'Series: '+state().identity.series:'',
-  state().identity.dateText?'Date / era: '+state().identity.dateText:'',
-  'Card number: '+cardNumber,
-  'Edition: 1/1'
- ]).filter(Boolean);
- profileLines.forEach(v=>{ctx.fillText(v,62,yy);yy+=25});
-
- ctx.font='900 19px Arial';ctx.fillText(stat?'SELECTED SEASON':'CARD DETAILS',62,410);
- ctx.fillStyle='#ffffff';ctx.fillRect(62,430,644,112);
- ctx.fillStyle=style.ink;ctx.font='800 16px Arial';
- const stats=stat?(stat?.group==='pitching'
-  ? [['YR',stat?.season],['TEAM',stat?.team],['W',stat?.wins],['L',stat?.losses],['ERA',stat?.era],['SO',stat?.strikeOuts],['SV',stat?.saves]]
-  : [['YR',stat?.season],['TEAM',stat?.team],['G',stat?.gamesPlayed],['AVG',stat?.avg],['HR',stat?.homeRuns],['RBI',stat?.rbi],['H',stat?.hits]])
-  : [['CARD',cardNumber],['STYLE',state().selections.style],['BORDER',state().selections.border],['FINISH',state().selections.finish],['EDITION','1/1']];
- let sx=78;stats.forEach(([k,v],i)=>{ctx.font='800 12px Arial';ctx.fillText(String(k||''),sx,460);ctx.font='900 16px Arial';ctx.fillText(String(v??''),sx,492);sx+=i===1?130:105});
-
- ctx.font='900 19px Arial';ctx.fillText('ORACLE CARD NOTE',62,592);
- ctx.font='16px Arial';
- const note=(lastPlan?.suggestions?.[0]||lastPlan?.specialDetails||(backData?.highlights||[])[0]||'One-of-one fantasy collector card.');
- fitText(ctx,note,62,626,640,24,4);
-
- ctx.font='900 19px Arial';ctx.fillText('CAREER SNAPSHOT',62,748);
- ctx.font='14px Arial';
- const seasons=(lastIntel?.seasons||[]).slice(-6);
- let sy=777;
- if(seasons.length){seasons.forEach(s=>{
-  const row=s.group==='pitching'
-   ? [s.season,s.team,'W '+s.wins,'ERA '+s.era,'SO '+s.strikeOuts]
-   : [s.season,s.team,'AVG '+s.avg,'HR '+s.homeRuns,'RBI '+s.rbi];
-  ctx.fillText(row.filter(Boolean).join('   '),62,sy);sy+=22;
- });}else{
-  const lines=[state().identity.brand&&('Brand: '+state().identity.brand),state().identity.series&&('Series: '+state().identity.series),state().identity.dateText&&('Date / era: '+state().identity.dateText),'Card '+cardNumber+' · 1/1'].filter(Boolean);
-  lines.forEach(line=>{ctx.fillText(line,62,sy);sy+=25;});
+ const front=results[index>=0?index:results.length-1];
+ const artifact=studioCards.get(front)||captureStudioCard(front);
+ const data=artifact?.back?.data||studioData();
+ const canvas=document.createElement('canvas');canvas.width=750;canvas.height=1050;
+ const rendered=CARD_BACK.render(canvas,data,{template:TEMPLATE_DB?.get(data.templateId)||activeTemplate()});
+ backResult=rendered.image;
+ if(artifact){
+  artifact.back={image:backResult,format:rendered.format,data,omittedFields:rendered.omittedFields};
+  studioCards.set(front,CARD_STUDIO.recordArtifact(artifact));
  }
-
- // High-contrast legal/product line: never white-on-white.
- ctx.fillStyle='#121820';ctx.fillRect(0,956,768,68);
- ctx.fillStyle='#fff';ctx.font='700 13px Arial';ctx.textAlign='center';
- ctx.fillText('Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC',384,988,720);
- backResult=canvas.toDataURL('image/png');
- showBack();
+ recordBuildDiagnostic('back',{format:rendered.format,omittedFields:rendered.omittedFields});
+ if(display)showBack();
+ return studioCards.get(front);
 }
 
 function showFront(){
@@ -2265,6 +2240,10 @@ async function createCard(count=1,mode='original'){
    stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
    const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
    recordBuildDiagnostic('validator',iteration.critique?'available':'unavailable');
+   if(typeof captureStudioCard==='function'){
+    captureStudioCard(iteration.finished,iteration);
+    if(state().selections.buildBack)await buildBackCard({display:false,index:results.length-1});
+   }
    stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
   }
 
@@ -2360,7 +2339,19 @@ async function autoCreate(count=1,{append=false}={}){
    stage('finish','done');
    stage('iterate','done','Card '+(i+1)+' finished: '+out.spec.value.tier+'.');
    results.push(out.front);
-   autoBacks.set(out.front,out.back);
+   if(CARD_DATA_STREAM&&CARD_STUDIO){
+    const data=CARD_DATA_STREAM.build({intel:out.intel,
+     userOverrides:{title:out.spec.title,subject:out.spec.player?.name||out.spec.title,category:'sports'},
+     cardNumber:CARD_NUMBERING?.number(out.spec.title,results.length)||String(results.length),
+     template:activeTemplate(),
+     footerText:'Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC'});
+    const artifact=CARD_STUDIO.recordArtifact({cardData:data,front:{image:out.front,templateId:data.templateId,renderPath:out.artSource},
+     back:{image:'',format:CARD_BACK.formatFor(data),data},evidence:{},sources:data.sources,provenance:data.provenance,
+     build:{renderer:out.artSource,validation:{status:'unavailable'}}});
+    studioCards.set(out.front,artifact);
+    await buildBackCard({display:false,index:results.length-1});
+    autoBacks.set(out.front,backResult);
+   }else autoBacks.set(out.front,out.back);
    autoTitles.set(out.front,out.spec.title);
    lastAutoSpec=out.spec;
    if(out.warning)console.warn('Auto card artwork fallback',out.warning);
@@ -2413,6 +2404,47 @@ $('retryBtn').addEventListener('click',async()=>{
   return;
  }
  buildAction(action,$('retryBtn').dataset.instruction||'');
+});
+
+if(CARD_STUDIO)CARD_STUDIO.configure({
+ capabilities:()=>SERVICES?.capabilities?.()||{},
+ build:async normalizedRequest=>{
+  const request=normalizedRequest.input||normalizedRequest;
+  if($('make').disabled)throw new Error('card_studio_builder_busy');
+  if(!(request.image instanceof Blob))throw new Error('card_studio_image_blob_required');
+  if(request.referenceImage&&!(request.referenceImage instanceof Blob))throw new Error('card_studio_reference_blob_required');
+  const supplied={};
+  for(const field of [...CARD_DATA_STREAM.SCALARS,...CARD_DATA_STREAM.LISTS]){
+   if(Object.hasOwn(request,field))supplied[field]=request[field];
+  }
+  if(!Object.hasOwn(supplied,'title')&&request.subject)supplied.title=request.subject;
+  studioRequest={...request,userOverrides:{...supplied,...request.userOverrides}};
+  try{
+   CARD_STATE?.reset();
+   await setPhoto(request.image);
+   await imageReadPromise;
+   if(request.referenceImage)await setReference(request.referenceImage);
+   const overrides=studioRequest.userOverrides;
+   const identityFields={title:'title',brand:'brand',context:'context',series:'series',date:'dateText',cardNumber:'cardNumber'};
+   for(const [field,entry] of Object.entries(overrides)){
+    const value=entry&&typeof entry==='object'?entry.value:entry;
+    if(CARD_EVIDENCE?.FIELDS.includes(field))cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,field,value);
+    if(identityFields[field])CARD_STATE?.setIdentity(identityFields[field],String(value??''));
+   }
+   if(request.cardNumber)CARD_STATE?.setIdentity('cardNumber',request.cardNumber);
+   const templateId=request.templateId||request.theme?.templateId;
+   if(templateId)CARD_STATE?.setSelection('template',templateId);
+   if(request.category)CARD_STATE?.setSelection('category',request.category);
+   state().back.format=request.backFormat||'auto';
+   CARD_STATE?.setSelection('buildBack',true);
+   $('message').value=[request.instruction,request.theme&&('Shared set design DNA: '+JSON.stringify(request.theme))].filter(Boolean).join('\n');
+   await createCard(1,request.referenceImage?'reference':'original');
+   const front=results[results.length-1];
+   const artifact=studioCards.get(front);
+   if(!artifact?.back?.image)throw new Error('card_studio_build_incomplete');
+   return artifact;
+  }finally{studioRequest=null}
+ }
 });
 $('tightenBtn').addEventListener('click',()=>buildAction($('tightenBtn').dataset.action||'layout',$('tightenBtn').dataset.instruction||''));
 $('moreBtn').addEventListener('click',()=>{
