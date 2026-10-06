@@ -477,21 +477,7 @@ function titleCase(value){
 }
 async function completeVisionIdentity(data={}){
  const visible=(Array.isArray(data.visibleText)?data.visibleText:[]).map(v=>String(v||'').trim()).filter(Boolean);
- const localTitle=firstText(data.titleOptions)||titleCase(data.subjectType)||'';
- const localBrand=firstText(data.brandOptions)||'';
- const localContext=firstText(data.teamOptions)||firstText(data.movieOptions)||firstText(data.contextOptions)||'';
- const fallback=()=>{
-  const title=localTitle||firstText(visible)||'Image Subject';
-  return {
-   ...data,
-   titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
-   brandOptions:localBrand?[localBrand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==localBrand)]:[],
-   logoOptions:localBrand?[localBrand]:[],
-   contextOptions:localContext?[localContext]:[]
-  };
- };
- try{
-  const input=`You are the image-data interpreter for a collectible-card builder. Convert a raw image-reader result into editable fields. Use ONLY evidence present in the reader payload. Do not identify an unknown real person from appearance alone. Do not invent a team, movie, brand, date, product, band, athlete, actor, logo, or event. Visible text may support a field when it clearly functions as a name/logo/title rather than random background text.
+ const inputBase=`You are the senior image-data interpreter for a collectible-card builder. Convert the raw image-reader result into editable fields. Use ONLY evidence present in the reader payload. Do not identify an unknown real person from appearance alone. Do not invent a team, movie, brand, date, product, band, athlete, actor, logo, or event. Visible text may support a field only when it clearly functions as a title/name/logo rather than background noise.
 
 RAW IMAGE READER:
 ${JSON.stringify(data)}
@@ -508,59 +494,64 @@ Return ONLY JSON:
  "confidence":{"title":0,"context":0,"brand":0,"series":0,"date":0}
 }
 
-Field rules:
-- title: the best supported subject/title/name visible or explicitly returned by the reader. Otherwise blank.
-- context: supported team, movie, show, band, event, product line, place, or other useful context. Otherwise blank.
-- brand: only a supported brand/logo/publication/series mark. Otherwise blank.
-- series: a supported card/product/content type or useful category. Otherwise blank.
-- date: only a supported visible or reader-provided year/date/era. Otherwise blank.
-- subjectType: a short generic category such as baseball player, musician, actor, product, vehicle, landscape, or person.
-- Never turn uncertain OCR into a confident identity.`;
+Rules:
+- If the evidence is uncertain, keep the factual field blank rather than inventing it.
+- subjectType and series may be useful generic descriptions supported by the image-reader evidence.
+- Never substitute a made-up person, brand, team, date, or title.`;
+
+ async function attempt(extra='',task='image-data-to-fields'){
   const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
    method:'POST',
    headers:{'Content-Type':'application/json','Accept':'application/json'},
-   body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'image-data-to-fields'}})
-  },7000);
+   body:JSON.stringify({input:inputBase+extra,context:{application:'Oracle Card Studio',task}})
+  },9000);
   const d=await r.json().catch(()=>({}));
-  if(!r.ok||!d.ok)return fallback();
+  if(!r.ok||!d.ok)throw new Error(String(d.error||'gpt_image_data_unavailable'));
   const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
-  if(!parsed||typeof parsed!=='object')return fallback();
-  const title=String(parsed.title||localTitle||'').trim();
-  const brand=String(parsed.brand||localBrand||'').trim();
-  const context=String(parsed.context||localContext||'').trim();
-  const series=String(parsed.series||'').trim();
-  const date=String(parsed.date||'').trim();
-  return {
-   ...data,
-   subjectType:String(parsed.subjectType||data.subjectType||'').trim(),
-   keywords:[...new Set([...(Array.isArray(parsed.keywords)?parsed.keywords:[]),...(Array.isArray(data.keywords)?data.keywords:[])].map(v=>String(v||'').trim()).filter(Boolean))],
-   titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
-   brandOptions:brand?[brand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==brand)]:[],
-   logoOptions:brand?[brand]:[],
-   contextOptions:context?[context]:[],
-   seriesOptions:series?[series]:asTextArray(data.seriesOptions),
-   dateOptions:date?[date]:asTextArray(data.dateOptions),
-   gptFieldConfidence:parsed.confidence||{}
-  };
- }catch{
-  return fallback();
+  if(!parsed||typeof parsed!=='object')throw new Error('gpt_image_data_invalid_json');
+  return parsed;
  }
-}
 
+ let parsed;
+ try{
+  parsed=await attempt();
+ }catch(firstError){
+  parsed=await attempt(
+   '\n\nSECOND-PASS INSTRUCTION: The first structured pass failed. Re-read the same evidence more carefully, preserve uncertainty, and still return the exact JSON object.',
+   'image-data-to-fields-recovery'
+  );
+ }
+
+ const title=String(parsed.title||'').trim();
+ const brand=String(parsed.brand||'').trim();
+ const context=String(parsed.context||'').trim();
+ const series=String(parsed.series||'').trim();
+ const date=String(parsed.date||'').trim();
+ const subjectType=String(parsed.subjectType||data.subjectType||'').trim();
+ const keywords=[...new Set([...(Array.isArray(parsed.keywords)?parsed.keywords:[]),...(Array.isArray(data.keywords)?data.keywords:[])].map(v=>String(v||'').trim()).filter(Boolean))];
+
+ return {
+  ...data,
+  subjectType,
+  keywords,
+  titleOptions:title?[title]:asTextArray(data.titleOptions),
+  brandOptions:brand?[brand]:asTextArray(data.brandOptions),
+  logoOptions:brand?[brand]:[],
+  contextOptions:context?[context]:asTextArray(data.contextOptions),
+  seriesOptions:series?[series]:asTextArray(data.seriesOptions),
+  dateOptions:date?[date]:asTextArray(data.dateOptions),
+  visibleText:visible,
+  gptFieldConfidence:parsed.confidence||{}
+ };
+}
 function applyVisionResult(data){
  if(!data)return;
- const title=firstText(data.titleOptions)||titleCase(data.subjectType)||'Image Subject';
+ const title=firstText(data.titleOptions)||'';
  const brand=firstText(data.brandOptions)||'';
  const logo=brand;
  const context=firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions)||'';
  const subjectType=String(data.subjectType||'').trim();
- const series=firstText(data.seriesOptions)||(
-  /portrait|person|musician|actor|athlete|player/i.test(subjectType)?'Portrait Card':
-  /product|object/i.test(subjectType)?'Product Card':
-  /vehicle/i.test(subjectType)?'Vehicle Card':
-  /poster|artwork|screenshot/i.test(subjectType)?'Collector Card':
-  subjectType?titleCase(subjectType)+' Card':'Collector Card'
- );
+ const series=firstText(data.seriesOptions)||'';
  const date=firstText(data.dateOptions);
  const detected={
   title,
@@ -825,10 +816,10 @@ async function setPhoto(file){
     const name=state().identity.title||firstText(vision.titleOptions);
     $('status').textContent='GPT image data ready'+(name?': '+name:'')+'. Now add only the changes you want in the instruction box.';
    }).catch(()=>{});
-  }catch{
+  }catch(error){
    if(generation!==photoReadGeneration||sourceFile!==file)return;
-   applyVisionResult({subjectType:'image subject',titleOptions:['Image Subject'],seriesOptions:['Collector Card'],keywords:[]});
-   $('status').textContent='Photo loaded. The image reader was unavailable, so generic card data was inserted instead of leaving blank fields.';
+   imageReadState='error';
+   $('status').textContent='GPT image read stopped: '+String(error?.message||error||'unknown image-read error')+'. No fake fallback data was inserted.';
   }finally{
    if(generation===photoReadGeneration&&sourceFile===file){
     imageReadState='ready';
@@ -1503,8 +1494,10 @@ async function createCard(count=1,mode='original'){
   stage('plan','active','GPT is turning the image data + your instruction into a card plan…');
   try{
    lastPlan=await buildDesignPlan(lastDescription,lastIntel,lastIntent);
-  }catch{
-   lastPlan=localDesignPlan(lastDescription,lastIntel,lastIntent);
+  }catch(firstPlanError){
+   stage('plan','active','GPT is retrying the card plan with a stricter production brief…');
+   const recoveryDescription=lastDescription+'\nRECOVERY PASS: The first planning call failed. Produce a simpler but stronger executable card plan. Preserve every supported fact and every explicit user instruction. Do not invent missing identity or branding.';
+   lastPlan=await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
   }
   lastAbilityRoute=null;
   stage('plan','done','GPT plan ready.');
@@ -1560,7 +1553,8 @@ $('retryBtn').addEventListener('click',async()=>{
  if(action==='reread'){
   if(sourceFile){
    $('reviewStatus').innerHTML='<strong>Re-reading the uploaded image…</strong>';
-   const vision=await completeVisionIdentity(await readUploadedImage(sourceFile).catch(()=>({})));
+   const raw=await readUploadedImage(sourceFile);
+   const vision=await completeVisionIdentity(normalizeVisionPayload(raw));
    applyVisionResult(vision);
    await updateReviewPanel(results[activeResult]||results.at(-1)||'');
   }
