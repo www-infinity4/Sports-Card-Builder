@@ -542,38 +542,52 @@ function titleCase(value){
 async function fetchWebContextForImage(data={}){
  const visible=asTextArray(data.visibleText).slice(0,10);
  const hint=String($('message')?.value||'').trim();
- // Web lookup is evidence expansion, not face/character recognition.
- // Only search when we have textual evidence from the image or explicit user context.
+ // Search exact OCR evidence first. GPT may add a second corroborating query,
+ // but it is never allowed to replace the literal text lookup.
  if(!visible.length&&!hint)return [];
- const querySeed=[hint,visible.join(' ')].filter(Boolean).join(' ').trim();
- if(!querySeed)return [];
- let query=querySeed;
+ const directQuery=[hint,visible.slice(0,5).join(' ')].filter(Boolean).join(' ').trim().slice(0,240);
+ const queries=directQuery?[directQuery]:[];
+
  try{
-  const planner=`Turn this image evidence into ONE concise web-search query for source/context lookup.
+  const planner=`Turn this image evidence into ONE concise corroborating web-search query.
 USER HINT: ${hint||'(none)'}
 VISIBLE IMAGE TEXT: ${visible.join(' | ')||'(none)'}
 SEMANTIC DESCRIPTION: ${String(data.semanticDescription||data.description||'').slice(0,800)}
-Return only the query. Do not infer a real person's or fictional character's identity from appearance; use only the supplied text/hint.`;
+Return only the query. Preserve exact visible title/band/product/team words when present. Do not infer a real person's or fictional character's identity from appearance.`;
   const rr=await fetchWithTimeout(SERVICE+'/v1/chat',{
    method:'POST',
    headers:{'Content-Type':'application/json','Accept':'application/json'},
    body:JSON.stringify({input:planner,context:{application:'Oracle Card Studio',task:'image-web-context-query'}})
-  },7000);
+  },20000);
   const dd=await rr.json().catch(()=>({}));
-  const q=String(dd.output||dd.output_text||dd.answer||'').replace(/^["']|["']$/g,'').trim();
-  if(rr.ok&&dd.ok&&q)query=q.slice(0,240);
+  const q=String(dd.output||dd.output_text||dd.answer||'').replace(/^["']|["']$/g,'').trim().slice(0,240);
+  if(rr.ok&&dd.ok&&q&&!queries.some(x=>normalizedName(x)===normalizedName(q)))queries.push(q);
  }catch{}
- try{
-  const u=new URL(WEB_CONTEXT_SEARCH);
-  u.search=new URLSearchParams({q:query,format:'json',safesearch:'1'});
-  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},20000);
-  const json=await res.json().catch(()=>({}));
-  return (Array.isArray(json.results)?json.results:[]).slice(0,8).map(x=>({
-   title:String(x.title||'').slice(0,220),
-   snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,500),
-   url:String(x.url||'').slice(0,500)
-  })).filter(x=>x.title||x.snippet);
- }catch{return []}
+
+ async function runSearch(query){
+  try{
+   const u=new URL(WEB_CONTEXT_SEARCH);
+   u.search=new URLSearchParams({q:query,format:'json',safesearch:'1'});
+   const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},10000);
+   if(!res.ok)return [];
+   const json=await res.json().catch(()=>({}));
+   return (Array.isArray(json.results)?json.results:[]).slice(0,8).map(x=>({
+    title:String(x.title||'').slice(0,220),
+    snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,500),
+    url:String(x.url||'').slice(0,500)
+   })).filter(x=>x.title||x.snippet);
+  }catch{return []}
+ }
+
+ const batches=await Promise.all(queries.slice(0,2).map(runSearch));
+ const seen=new Set(),merged=[];
+ for(const item of batches.flat()){
+  const key=normalizedName(item.url||item.title);
+  if(!key||seen.has(key))continue;
+  seen.add(key);merged.push(item);
+  if(merged.length>=10)break;
+ }
+ return merged;
 }
 
 async function completeVisionIdentity(data={},webContext=[]){
@@ -635,11 +649,16 @@ Rules:
  // OCR is first-class evidence. If the general pass somehow leaves title blank
  // while readable text exists, ask GPT a focused reconciliation question instead
  // of letting the card continue without the obvious printed title.
- if(!String(parsed.title||'').trim()&&visible.length){
+ const currentTitle=String(parsed.title||'').trim();
+ const visibleMatchesTitle=currentTitle&&visible.some(v=>{
+  const a=normalizedName(v),b=normalizedName(currentTitle);
+  return a&&b&&(a===b||a.includes(b)||b.includes(a));
+ });
+ if(visible.length&&(!currentTitle||!visibleMatchesTitle)){
   try{
    const ocrPass=await attempt(
     '\n\nOCR PRIORITY PASS: The image reader found this exact visible text: '+JSON.stringify(visible)+
-    '. Decide whether one of these strings is clearly the work/band/team/product/title shown in the image. If yes, put that exact text in title and use corroborating web context only to organize context/brand/series. Do not paraphrase the visible title.',
+    '. The current title is '+JSON.stringify(currentTitle||'(blank)')+'. Reconcile the title against the literal OCR. If a prominent visible string is clearly the work/band/team/product/title, put that exact wording in title. Use corroborating web context only to understand what the visible words refer to. Do not paraphrase a visible title.',
     'image-data-ocr-title-recovery'
    );
    parsed={...parsed,...ocrPass,confidence:{...(parsed.confidence||{}),...(ocrPass.confidence||{})}};
