@@ -2077,16 +2077,24 @@ async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
 }
 
 async function gptRenderRecovery(prompt,description,error){
+ const compactManagerInput=(value,max)=>{
+  const raw=String(value||'');
+  if(raw.length<=max)return raw;
+  const head=Math.floor(max*.7),tail=max-head;
+  return raw.slice(0,head)+'\n[omitted repeated planning detail]\n'+raw.slice(-tail);
+ };
+ const compactDescription=compactManagerInput(description,3500);
+ const compactPrompt=compactManagerInput(prompt,4600);
  const input=`You are the senior rendering manager for a collectible-card image pipeline. A capable image renderer failed. Diagnose the failure from the exact error and rewrite the render instruction so the renderer has the best chance of succeeding WITHOUT weakening the user's requirements.
 
 ORIGINAL CARD DESCRIPTION:
-${description||''}
+${compactDescription}
 
 ORIGINAL RENDER PROMPT:
-${prompt||''}
+${compactPrompt}
 
 RENDER FAILURE:
-${String(error?.message||error||'unknown')}
+${String(error?.message||error||'unknown').slice(0,500)}
 
 Return ONLY JSON:
 {
