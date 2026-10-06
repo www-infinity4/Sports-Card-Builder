@@ -310,11 +310,26 @@ Rules:
 - If title/logo placement is missing or weak, make that the highest priority.
 - Keep each button label under 22 characters.
 - Never invent a real athlete or brand unsupported by the locked request or vision read.`;
-  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'finished-card-critic',codePhiBrowser:Boolean(browserInspection)}})},10000);
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok||!d.ok)return null;
-  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
-  return parsed&&Array.isArray(parsed.actions)?parsed:null;
+  async function criticCall(extra='',task='finished-card-critic'){
+   const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({input:input+extra,context:{application:'Oracle Card Studio',task,codePhiBrowser:Boolean(browserInspection)}})
+   },14000);
+   const d=await r.json().catch(()=>({}));
+   if(!r.ok||!d.ok)throw new Error(String(d.error||'oracle_review_failed'));
+   const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
+   if(!parsed||!Array.isArray(parsed.actions))throw new Error('oracle_review_invalid_json');
+   return parsed;
+  }
+  try{
+   return await criticCall();
+  }catch(firstError){
+   return await criticCall(
+    '\n\nRECOVERY PASS: Return the exact JSON schema requested above. Use the strongest visible defect from the rendered-card read/browser screenshot and provide three concrete repair actions. Do not explain outside JSON.',
+    'finished-card-critic-recovery'
+   );
+  }
  }catch{return null}
 }
 
@@ -338,7 +353,10 @@ async function updateReviewPanel(src=''){
  variation.textContent='New Variation';variation.dataset.action='variation';variation.dataset.instruction='';variation.style.display='inline-block';
 
  const critique=src?await askOracleToReview(src):null;
- if(!critique)return;
+ if(!critique){
+  status.innerHTML='<strong>Oracle visual review could not finish.</strong> The finished card is still available; use Improve Style, Improve Layout, or New Variation.';
+  return;
+ }
  status.innerHTML='<strong>Oracle review:</strong> '+String(critique.summary||'The card is ready for a targeted refinement.');
  const buttons=[primary,layout,variation];
  critique.actions.slice(0,3).forEach((action,i)=>{
@@ -574,6 +592,20 @@ Rules:
    '\n\nSECOND-PASS INSTRUCTION: The first structured pass failed. Re-read the same evidence more carefully, preserve uncertainty, and still return the exact JSON object.',
    'image-data-to-fields-recovery'
   );
+ }
+
+ // OCR is first-class evidence. If the general pass somehow leaves title blank
+ // while readable text exists, ask GPT a focused reconciliation question instead
+ // of letting the card continue without the obvious printed title.
+ if(!String(parsed.title||'').trim()&&visible.length){
+  try{
+   const ocrPass=await attempt(
+    '\n\nOCR PRIORITY PASS: The image reader found this exact visible text: '+JSON.stringify(visible)+
+    '. Decide whether one of these strings is clearly the work/band/team/product/title shown in the image. If yes, put that exact text in title and use corroborating web context only to organize context/brand/series. Do not paraphrase the visible title.',
+    'image-data-ocr-title-recovery'
+   );
+   parsed={...parsed,...ocrPass,confidence:{...(parsed.confidence||{}),...(ocrPass.confidence||{})}};
+  }catch{}
  }
 
  const title=String(parsed.title||'').trim();
