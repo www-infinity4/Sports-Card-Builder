@@ -347,9 +347,10 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
 
 
 async function readUploadedImage(blob){
+ const transport=await prepareTransportImage(blob,{max:1200,maxBytes:2_800_000});
  const form=new FormData();
- form.append('image',blob,'reader.jpg');
- const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},12000);
+ form.append('image',transport,'reader.jpg');
+ const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},20000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)return null;
  return d;
@@ -794,14 +795,33 @@ function stage(name,state,note=''){
  if(note)$('buildNote').textContent=note;
 }
 
-async function resizeImage(file,max=512){
+async function resizeImage(file,max=512,quality=.94){
  const bitmap=await createImageBitmap(file);
  const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
  const w=Math.max(1,Math.round(bitmap.width*scale)),h=Math.max(1,Math.round(bitmap.height*scale));
  const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
  const ctx=canvas.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(bitmap,0,0,w,h);
  if(bitmap.close)bitmap.close();
- return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('image_prepare_failed')),'image/jpeg',.94));
+ return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('image_prepare_failed')),'image/jpeg',quality));
+}
+
+async function prepareTransportImage(file,{max=1800,maxBytes=2_800_000}={}){
+ if(!file)return file;
+ if(file.size<=maxBytes){
+  try{
+   const bitmap=await createImageBitmap(file);
+   const within=Math.max(bitmap.width,bitmap.height)<=max;
+   if(bitmap.close)bitmap.close();
+   if(within)return file;
+  }catch{}
+ }
+ for(const [edge,quality] of [[max,.92],[1500,.88],[1200,.84],[1024,.80]]){
+  try{
+   const out=await resizeImage(file,edge,quality);
+   if(out&&out.size<=maxBytes)return out;
+  }catch{}
+ }
+ return await resizeImage(file,900,.76);
 }
 
 function extractJSON(text){
@@ -1298,9 +1318,13 @@ async function renderWithComfy(blob,prompt){
 }
 
 async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
+ const transport=await prepareTransportImage(blob,{max:1800,maxBytes:2_800_000});
  const form=new FormData();
- form.append('image',blob,blob?.name||'subject.jpg');
- if(designBlob)form.append('design_reference',designBlob,designBlob?.name||'design-reference.jpg');
+ form.append('image',transport,'subject.jpg');
+ if(designBlob){
+  const designTransport=await prepareTransportImage(designBlob,{max:1400,maxBytes:2_800_000});
+  form.append('design_reference',designTransport,'design-reference.jpg');
+ }
  form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.'));
  form.append('request',String(description||prompt||'').slice(0,1800));
  const r=await fetchWithTimeout(SERVICE+'/v1/image',{method:'POST',body:form},150000);
