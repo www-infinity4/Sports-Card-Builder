@@ -15,7 +15,7 @@ This project uses the user's GitHub forks as the canonical open-source capabilit
 
 Oracle does **not** vendor these entire repositories into Sports-Card-Builder.
 
-The builder creates an ability route for each job:
+The intended fork capabilities are:
 
 1. **Reader** — Transformers.js for browser-safe inspection.
 2. **Masker** — SAM2 for precise subject/object segmentation.
@@ -25,6 +25,19 @@ The builder creates an ability route for each job:
 6. **Validator** — Oracle compares the output against semantic hard locks before acceptance.
 
 GPU-heavy engines require a GPU runtime reachable by an adapter. A GitHub fork supplies source code, not free compute. The browser app therefore treats those engines as capabilities with explicit runtime requirements.
+
+## Integration audit
+
+The October 6, 2026 audit enumerated 133 public forks belonging to `www-infinity4` and confirmed all six fork names above. Not all forks are relevant to card creation, and being listed here does not make a fork executable.
+
+- **ComfyUI:** an executable HTTP adapter and deployment definition exist. It uploads a subject, submits a workflow, polls completion and retrieves the result.
+- **FLUX:** the adapter uses configured FLUX checkpoints through native ComfyUI nodes, not a direct installation of the `flux` fork.
+- **Diffusers, SAM2, Transformers.js and Wan2.2:** source references only; no direct executable adapter exists in this app.
+- **Other relevant forks:** PaddleOCR, GroundingDINO, segment-anything, opencv, ultralytics, Depth-Anything-3, open_clip, tfjs-models, LTX-Video, Hunyuan3D-2.1, TRELLIS.2, FFmpeg, ffmpeg.wasm, remotion, og-image, three.js, searxng, playwright, c2pa-js and fonttools were found, but are not directly integrated here. External Worker reader, search and browser-inspection calls do not prove those Workers use these forks.
+
+`GET /api/abilities` reports `implemented`, `configured`, `status`, `implementedTasks`, and adapter/health endpoints. Configured does **not** mean healthy; verify `/api/renderer/health` on the deployed host. No GPU deployment was confirmed operational by this audit.
+
+Create Card can compile its locked request with the existing browser builder tools if all GPT planning attempts fail. This is a renderer prompt fallback, not fabricated card data or replacement artwork. Automatic repair failures retain the original finished card.
 
 ## Licensing boundary
 

@@ -22,7 +22,7 @@ const ABILITIES = Object.freeze({
   },
   imageGeneration: {
     id: 'image_generation',
-    engine: 'FLUX + Diffusers',
+    engine: 'FLUX via ComfyUI (Diffusers is a source reference only)',
     forks: ['www-infinity4/flux','www-infinity4/diffusers'],
     runtime: 'gpu-service',
     tasks: ['text-to-image','image-to-image','inpainting','controlled-generation']
@@ -42,8 +42,24 @@ const ABILITIES = Object.freeze({
   }
 });
 
-function getAbilities() {
-  return ABILITIES;
+function getAbilities(env = process.env) {
+  const configured = Boolean(
+    env.ORACLE_COMFY_URL && env.ORACLE_FLUX_UNET && env.ORACLE_FLUX_CLIP_L &&
+    env.ORACLE_FLUX_T5 && env.ORACLE_FLUX_VAE
+  );
+  return Object.fromEntries(Object.entries(ABILITIES).map(([key, ability]) => {
+    const local = key === 'autoCard';
+    const renderer = key === 'workflow' || key === 'imageGeneration';
+    return [key, {
+      ...ability,
+      implemented: local || renderer,
+      configured: local || (renderer && configured),
+      status: local ? 'browser-ready' : renderer ? (configured ? 'configured-unverified' : 'not-configured') : 'reference-only',
+      endpoint: renderer ? '/api/render/comfy' : null,
+      healthEndpoint: renderer ? '/api/renderer/health' : null,
+      implementedTasks: local ? ability.tasks : key === 'workflow' ? ['workflow-graph'] : key === 'imageGeneration' ? ['image-to-image'] : []
+    }];
+  }));
 }
 
 module.exports = { ABILITIES, getAbilities };
