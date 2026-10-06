@@ -82,6 +82,22 @@ function builderDescription(freeform=''){
  ].filter(Boolean).join('\n');
 }
 
+function renderSkillsPanel(route=null){
+ const box=$('skillsPanel');if(!box)return;
+ const abilities=Array.isArray(route?.abilities)?route.abilities:[];
+ box.innerHTML='';
+ if(!abilities.length){box.style.display='none';return}
+ const title=document.createElement('div');title.className='skillsLabel';title.textContent='Skills in use';box.appendChild(title);
+ const chips=document.createElement('div');chips.className='skillsChips';
+ abilities.forEach(a=>{
+  const chip=document.createElement('div');chip.className='skillChip';
+  const name=document.createElement('strong');name.textContent=String(a.engine||a.id||'Skill');
+  const purpose=document.createElement('span');purpose.textContent=String(a.purpose||'');
+  chip.appendChild(name);chip.appendChild(purpose);chips.appendChild(chip);
+ });
+ box.appendChild(chips);box.style.display='block';
+}
+
 function updateBuilderSummary(){
  const s=state(), t=CARD_TEMPLATES?.choose(s);
  const bits=[
@@ -190,6 +206,8 @@ function applyReaderSuggestions(data={}){
 window.applyOracleReaderSuggestions=applyReaderSuggestions;
 
 initBuilderControls();
+lastAbilityRoute=ABILITY_ROUTER?.route({semantics:{raw:''},mode:'original'})||null;
+renderSkillsPanel(lastAbilityRoute);
 // Simple flow: keep the uploader first, followed by GPT-prefilled fields and the instruction box.
 
 
@@ -1164,6 +1182,8 @@ function renderSmartIdeas(plan){
 async function buildDesignPlan(description,intel=null,intent=null){
  const toolPlan=BUILDER?BUILDER.buildToolPlan(description):null;
  lastToolPlan=toolPlan;
+ lastAbilityRoute=ABILITY_ROUTER?.route({...toolPlan,mode:buildMode})||null;
+ renderSkillsPanel(lastAbilityRoute);
  const input=`You are Oracle, a senior collectible-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0. The subject may be music, film, television, sports, products, art, history, people, places, objects or anything else. Never force a non-sports subject into sports-card semantics.
 
 USER REQUEST:
@@ -1180,6 +1200,9 @@ ${JSON.stringify(intent||{})}
 
 BUILDER TOOL SPECIFICATION (treat hardRequirements as locked constraints; enrich, do not contradict):
 ${toolPlan?JSON.stringify({semantics:toolPlan.semantics,style:toolPlan.style,layout:toolPlan.layout,hardRequirements:BUILDER.hardRequirements(toolPlan.semantics,toolPlan.style,toolPlan.layout)}):'Builder toolkit unavailable.'}
+
+ACTIVE SKILLS / RESPONSIBILITIES:
+${lastAbilityRoute?ABILITY_ROUTER.buildCapabilityNote({...toolPlan,mode:buildMode}):'No ability router available.'}
 
 Return ONLY valid JSON:
 {
@@ -1653,7 +1676,7 @@ async function createCard(count=1,mode='original'){
    const recoveryDescription=lastDescription+'\nRECOVERY PASS: The first planning call failed. Produce a simpler but stronger executable card plan. Preserve every supported fact and every explicit user instruction. Do not invent missing identity or branding.';
    lastPlan=await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
   }
-  lastAbilityRoute=null;
+  renderSkillsPanel(lastAbilityRoute);
   stage('plan','done','GPT plan ready.');
   await nextPaint();
 
