@@ -107,8 +107,17 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 .buildStep.error .state{color:#aa6060}
 @keyframes pulse{50%{transform:scale(1.28)}}
 .buildNote{margin-top:14px;text-align:center;color:#75808c;font-size:.82rem}
-.actions{display:flex;justify-content:center;margin-top:12px}
-.newBtn{display:none;border:1px solid #ccd5dd;border-radius:14px;background:#f7fafc;color:#56616d;font-weight:850;padding:10px 14px;cursor:pointer}
+.reviewPanel{display:none;margin-top:14px;padding:13px;border:1px solid #d4dee6;border-radius:20px;background:linear-gradient(180deg,rgba(251,253,255,.95),rgba(238,245,250,.95));box-shadow:0 10px 26px rgba(66,82,96,.08)}
+.reviewHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.reviewTitle{font-size:.76rem;font-weight:950;letter-spacing:.09em;text-transform:uppercase;color:#74818d}
+.reviewStatus{font-size:.84rem;line-height:1.4;color:#53616d;max-width:78%}
+.reviewStatus strong{color:#17222c}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;margin-top:0}
+.actionBtn,.newBtn{border:1px solid #c6d4de;border-radius:999px;background:rgba(255,255,255,.88);color:#476071;font-weight:900;padding:9px 13px;cursor:pointer;box-shadow:0 3px 10px rgba(55,78,96,.06)}
+.actionBtn.primary{background:#e6f1f8;color:#244d67;border-color:#aec8da}
+.actionBtn:disabled,.newBtn:disabled{opacity:.5;cursor:default}
+.newBtn{display:none;color:#687782}
+@media(max-width:520px){.reviewHead{display:grid}.reviewStatus{max-width:none}.actions{gap:7px}.actionBtn,.newBtn{padding:9px 12px;font-size:.82rem}}
 </style>
 </head>
 <body>
@@ -249,12 +258,18 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <img id="resultImage" class="result" alt="Generated collectible card">
    </div>
    <div id="variationBar" class="variationBar" aria-label="Card variations"></div>
-   <div id="resultActions" class="actions">
-    <button id="retryBtn" class="actionBtn">Retry</button>
-    <button id="tightenBtn" class="actionBtn primary">Tighten</button>
-    <button id="moreBtn" class="actionBtn">More like this</button>
-    <button id="backBtn" class="actionBtn">Build Back</button>
-    <button id="newCard" class="newBtn">New card</button>
+   <div id="reviewPanel" class="reviewPanel">
+    <div class="reviewHead">
+     <div class="reviewTitle">Oracle Review</div>
+     <div id="reviewStatus" class="reviewStatus"><strong>Checking the build…</strong></div>
+    </div>
+    <div id="resultActions" class="actions">
+     <button id="retryBtn" class="actionBtn primary">Improve Style</button>
+     <button id="tightenBtn" class="actionBtn">Improve Layout</button>
+     <button id="moreBtn" class="actionBtn">New Variation</button>
+     <button id="backBtn" class="actionBtn">Build Back</button>
+     <button id="newCard" class="newBtn">New Card</button>
+    </div>
    </div>
   </section>
  </main>
@@ -266,6 +281,6 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261005-3"></script>
 <script src="./public/ability-router.js?v=20261005-1"></script>
-<script src="./public/app.js?v=20261005-6"></script>
+<script src="./public/app.js?v=20261005-7"></script>
 </body>
 </html>
