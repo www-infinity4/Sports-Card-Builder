@@ -11,6 +11,8 @@ const defaults={
   oneOfOne:true,
   useLogo:true,
   useBrand:true,
+  showName:true,
+  showContext:true,
   includeDate:true,
   buildBack:true
  },
@@ -18,6 +20,7 @@ const defaults={
   title:'',
   brand:'',
   logoText:'',
+  context:'',
   series:'',
   dateText:'',
   cardNumber:''
