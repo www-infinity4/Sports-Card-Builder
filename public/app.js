@@ -355,7 +355,7 @@ async function updateReviewPanel(src=''){
  const critique=src?await askOracleToReview(src):null;
  if(!critique){
   status.innerHTML='<strong>Oracle visual review could not finish.</strong> The finished card is still available; use Improve Style, Improve Layout, or New Variation.';
-  return;
+  return false;
  }
  status.innerHTML='<strong>Oracle review:</strong> '+String(critique.summary||'The card is ready for a targeted refinement.');
  const buttons=[primary,layout,variation];
@@ -365,23 +365,25 @@ async function updateReviewPanel(src=''){
   btn.dataset.action=kind;
   btn.dataset.instruction=String(action.instruction||'');
   btn.textContent=String(action.label||btn.textContent).slice(0,22);
- });
+ }); });
+ return true;
 }
 
-async function showResult(index){
+async function showResult(index,{review=true}={}){
  const src=results[index];if(!src)return;
  if($('resultHeading'))$('resultHeading').textContent='Finished design';
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
- renderVariationBar();await updateReviewPanel(src);
+ renderVariationBar();if(review)await updateReviewPanel(src);
 }
 
-async function finishOutput(out){
+async function finishOutput(out,{review=true}={}){
  if(!out?.dataURI)throw new Error('empty_image');
  const base=out.dataURI;
- const finished=await stampCollectorMarks(base);
+ const typed=await stampFrontIdentity(base);
+ const finished=await stampCollectorMarks(typed);
  const img=new Image();img.src=finished;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('image_display_failed'))});
- results.push(finished);await showResult(results.length-1);return finished;
+ results.push(finished);await showResult(results.length-1,{review});return finished;
 }
 
 function variationPrompt(plan,kind,index=0,instruction=''){
@@ -407,8 +409,11 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
   const out=await renderCard(lastBlob,basePrompt,lastDescription,lastReferenceBlob);
   stage('render','done');
   stage('finish','active','Finishing…');
-  await finishOutput(out);
+  const finished=await finishOutput(out,{review:false});
   stage('finish','done');
+  stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
+  const reviewed=await updateReviewPanel(finished).catch(()=>false);
+  stage('iterate','done',reviewed?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
  }
  $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 }
@@ -1100,7 +1105,7 @@ function renderSmartIdeas(plan){
 async function buildDesignPlan(description,intel=null,intent=null){
  const toolPlan=BUILDER?BUILDER.buildToolPlan(description):null;
  lastToolPlan=toolPlan;
- const input=`You are Oracle, a senior sports-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0.
+ const input=`You are Oracle, a senior collectible-card art director. Read the user's short request literally and convert it into a production design plan for an image editor using reference image 0. The subject may be music, film, television, sports, products, art, history, people, places, objects or anything else. Never force a non-sports subject into sports-card semantics.
 
 USER REQUEST:
 ${description}
@@ -1108,7 +1113,7 @@ ${description}
 INTERNAL CARD-STYLE REFERENCE:
 ${styleKnowledge(description)}
 
-PUBLIC PLAYER / SEASON DATA:
+VERIFIED DOMAIN DATA (sports data appears here only when the subject is actually a verified player):
 ${intel?JSON.stringify({player:intel.player,highlights:intel.highlights,seasons:(intel.seasons||[]).slice(-12)}):"No verified player data available."}
 
 EXTRACTED INTENT:
@@ -1141,7 +1146,7 @@ Return ONLY valid JSON:
 
 Rules:
 - Obey explicit visual instructions exactly. If the user says WHITE BORDER, the outerBorder MUST explicitly require a clearly visible bright white border around the full card perimeter. Never substitute silver, gray, black, gold, chrome, or another border.
-- Brand names such as Topps, Fleer, Donruss, Upper Deck, Bowman, Stadium Club, Score, Leaf or Diamond Kings are references to real sports-card design eras. Translate them into concrete design traits: border width, geometry, photo crop, typography placement, color blocking, print texture and material treatment.
+- When the user explicitly references a known card family such as Topps, Fleer, Donruss, Upper Deck, Bowman, Stadium Club, Score, Leaf or Diamond Kings, translate that reference into concrete design traits. Otherwise design for the actual subject domain instead of injecting sports language.
 - The uploaded subject must remain recognizable and be integrated into the card artwork, not pasted into a generic empty frame.
 - Design the WHOLE card as one coherent printed object. The subject, border, color fields, lighting and graphic shapes must visually interact.
 - Use the user's requested colors. Never default everything to white/silver Oracle colors; Oracle styling applies to the WEBSITE, not the generated card.
@@ -1330,7 +1335,64 @@ function showBack(){
 }
 
 
-async function stampFrontIdentity(dataURI){return dataURI;}
+async function stampFrontIdentity(dataURI){
+ const s=state();
+ const title=String(s.identity.title||s.detected.title||'').trim();
+ const context=String(s.identity.context||s.detected.context||'').trim();
+ const brand=String(s.identity.brand||s.identity.logoText||s.detected.brand||'').trim();
+ const series=String(s.identity.series||'').trim();
+ const date=String(s.identity.dateText||s.detected.date||'').trim();
+ if(!title&&!context&&!brand&&!series&&!date)return dataURI;
+
+ const img=new Image();img.src=dataURI;
+ await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('front_identity_load_failed'))});
+ const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+ const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+ const W=canvas.width,H=canvas.height;
+ const pad=Math.max(22,Math.round(W*.045));
+ const footerH=Math.max(118,Math.round(H*.145));
+
+ // Production typography is composited after AI artwork so names stay exact,
+ // readable and never become pseudo-text from the image model.
+ const g=ctx.createLinearGradient(0,H-footerH*1.55,0,H);
+ g.addColorStop(0,'rgba(0,0,0,0)');
+ g.addColorStop(.48,'rgba(0,0,0,.34)');
+ g.addColorStop(1,'rgba(0,0,0,.84)');
+ ctx.fillStyle=g;ctx.fillRect(0,H-footerH*1.55,W,footerH*1.55);
+
+ function fitFont(text,maxWidth,start,min=20,weight=900){
+  let size=start;
+  do{ctx.font=weight+' '+size+'px Arial,Helvetica,sans-serif';if(ctx.measureText(text).width<=maxWidth)break;size-=2}while(size>min);
+  return size;
+ }
+ ctx.textAlign='left';ctx.textBaseline='alphabetic';
+ ctx.shadowColor='rgba(0,0,0,.78)';ctx.shadowBlur=Math.max(3,Math.round(W*.008));ctx.shadowOffsetY=2;
+
+ let y=H-Math.max(34,Math.round(H*.035));
+ const meta=[series,date].filter(Boolean).join(' · ');
+ if(meta){
+  const fs=fitFont(meta,W-pad*2,Math.max(16,Math.round(W*.027)),12,800);
+  ctx.font='800 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.92)';
+  ctx.fillText(meta,pad,y,W-pad*2);y-=Math.round(fs*1.55);
+ }
+ if(context){
+  const fs=fitFont(context,W-pad*2,Math.max(18,Math.round(W*.032)),14,800);
+  ctx.font='800 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.95)';
+  ctx.fillText(context,pad,y,W-pad*2);y-=Math.round(fs*1.45);
+ }
+ if(title){
+  const fs=fitFont(title,W-pad*2,Math.max(34,Math.round(W*.065)),22,900);
+  ctx.font='900 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='#fff';
+  ctx.fillText(title,pad,y,W-pad*2);
+ }
+ if(brand&&normalizedName(brand)!==normalizedName(title)){
+  const fs=fitFont(brand,W-pad*2,Math.max(15,Math.round(W*.024)),12,900);
+  ctx.font='900 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.90)';
+  ctx.textAlign='right';ctx.fillText(brand,W-pad,Math.max(28,Math.round(H*.045)),W-pad*2);
+ }
+ ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+ return canvas.toDataURL('image/jpeg',.97);
+}
 
 async function stampCollectorMarks(dataURI){
  const s=state();
@@ -1544,8 +1606,11 @@ async function createCard(count=1,mode='original'){
    stage('render','done');
    stage('finish','active','Adding card text and collector details…');
    await nextPaint();
-   await finishOutput(out);
+   const finished=await finishOutput(out,{review:false});
    stage('finish','done');
+   stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
+   const reviewed=await updateReviewPanel(finished).catch(()=>false);
+   stage('iterate','done',reviewed?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
   }
 
   $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
