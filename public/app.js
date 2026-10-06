@@ -365,7 +365,7 @@ async function updateReviewPanel(src=''){
   btn.dataset.action=kind;
   btn.dataset.instruction=String(action.instruction||'');
   btn.textContent=String(action.label||btn.textContent).slice(0,22);
- }); });
+ });
  return true;
 }
 
