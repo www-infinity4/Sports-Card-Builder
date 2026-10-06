@@ -1005,9 +1005,11 @@ async function retryCurrentImageRead(){
   const normalizedVision=normalizeVisionPayload(visionRaw||{});
   lastVision=normalizedVision;
   applyVisionResult(normalizedVision,{overwrite:true});
-  const webContext=await fetchWebContextForImage(normalizedVision);
+  const [webContext,imageComparison]=await Promise.all([
+   fetchWebContextForImage(normalizedVision),
+   fetchImageSearchComparison(normalizedVision,sourceFile)
+  ]);
   lastWebContext=webContext;
-  const imageComparison=await fetchImageSearchComparison(normalizedVision,sourceFile);
   lastImageComparison=imageComparison;
   const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
   applyVisionResult(enrichedVision,{overwrite:true});
@@ -1069,9 +1071,11 @@ async function setPhoto(file){
    // GPT then acts as manager and refines/organizes those same facts.
    applyVisionResult(normalizedVision,{overwrite:true});
    $('status').textContent='AI image data received. Checking visible text and web context…';
-   const webContext=await fetchWebContextForImage(normalizedVision);
+   const [webContext,imageComparison]=await Promise.all([
+    fetchWebContextForImage(normalizedVision),
+    fetchImageSearchComparison(normalizedVision,file)
+   ]);
    lastWebContext=webContext;
-   const imageComparison=await fetchImageSearchComparison(normalizedVision,file);
    lastImageComparison=imageComparison;
    const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
    applyVisionResult(enrichedVision,{overwrite:true});
@@ -1764,11 +1768,13 @@ async function createCard(count=1,mode='original'){
 
  try{
   if(imageReadState==='reading'&&imageReadPromise){
-   stage('prepare','active','Reading the exact uploaded image and visible text first…');
-   await Promise.race([
-    imageReadPromise,
-    new Promise(resolve=>setTimeout(resolve,46000))
-   ]);
+   const s=state();
+   const titleNow=String(s.identity.title||s.detected.title||'').trim();
+   const literalNow=asTextArray(lastVision?.visibleText);
+   if(!titleNow&&!literalNow.length){
+    stage('prepare','active','Reading the exact upload and comparing SearXNG images before planning…');
+    await imageReadPromise;
+   }
   }
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
 
