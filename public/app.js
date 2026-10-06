@@ -1,4 +1,5 @@
 const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
+const COMFY_RENDERER_ENDPOINT=SERVICE+'/v1/comfy-image';
 const $=id=>document.getElementById(id);
 const BUILDER=window.OracleBuilderTools||null;
 const ABILITY_ROUTER=window.OracleAbilityRouter||null;
@@ -246,7 +247,7 @@ async function generateFromPlan(kind='single',count=1){
   if(!check.ok)lastPlan=BUILDER.normalizeAIPlan(lastPlan,tp);
  }
  for(let i=0;i<count;i++){
-  stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering the card…');
+  stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering through Oracle’s best available engine…');
   const basePrompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
   const prompt=ABILITY_ROUTER&&lastToolPlan?basePrompt+'\n\n'+ABILITY_ROUTER.buildCapabilityNote({...lastToolPlan,mode:buildMode}):basePrompt;
   const out=await renderCard(lastBlob,prompt,lastDescription,lastReferenceBlob);
@@ -990,7 +991,37 @@ async function renderExactWhiteFlagship(sourceBlob){
 
  return {ok:true,dataURI:canvas.toDataURL('image/jpeg',.97),mode:'exact-source'};
 }
+
+async function blobToDataURI(blob){
+ return await new Promise((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onload=()=>resolve(String(reader.result||''));
+  reader.onerror=()=>reject(new Error('image_encode_failed'));
+  reader.readAsDataURL(blob);
+ });
+}
+
+async function renderWithComfy(blob,prompt){
+ const imageDataURI=await blobToDataURI(blob);
+ const r=await fetchWithTimeout(COMFY_RENDERER_ENDPOINT,{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({imageDataURI,prompt,width:768,height:1024,denoise:.28})
+ },150000);
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok){const e=new Error(String(d.error||'comfy_renderer_failed'));e.code=String(d.error||'');throw e}
+ return d;
+}
+
 async function renderCard(blob,prompt,description,designBlob=null){
+ try{
+  const comfy=await renderWithComfy(blob,prompt);
+  return {...comfy,mode:'comfyui-flux'};
+ }catch(comfyError){
+  if(comfyError.code!=='renderer_not_configured'&&comfyError.code!=='renderer_offline'){
+   console.warn('Comfy renderer unavailable:',comfyError);
+  }
+ }
  const s=state();
  const exactFlagship=!designBlob&&s.selections.border==='white'&&s.selections.style==='flagship'&&['paper','matte','gloss'].includes(s.selections.finish);
  if(exactFlagship)return renderExactWhiteFlagship(blob);
