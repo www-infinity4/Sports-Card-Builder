@@ -31,6 +31,17 @@
   try{if(globalThis.crypto?.randomUUID)return globalThis.crypto.randomUUID()}catch{}
   return 'oracle-'+Date.now().toString(36)+'-'+(++counter).toString(36)+'-'+Math.random().toString(36).slice(2,10);
  }
+ const CLIENT_ID_KEY='oracle-card-client-id-v1';
+ let stableClientId='';
+ function clientId(){
+  if(stableClientId)return stableClientId;
+  let saved='';
+  try{if(typeof localStorage!=='undefined')saved=String(localStorage.getItem(CLIENT_ID_KEY)||'')}catch{}
+  if(/^oracle-card-[a-z0-9-]{8,}$/i.test(saved))return (stableClientId=saved);
+  stableClientId='oracle-card-'+id();
+  try{if(typeof localStorage!=='undefined')localStorage.setItem(CLIENT_ID_KEY,stableClientId)}catch{}
+  return stableClientId;
+ }
  function endpointUrl(key){
   if(!Object.hasOwn(ENDPOINTS,key))throw new Error('unknown_service_endpoint:'+key);
   const path=ENDPOINTS[key];
@@ -59,9 +70,14 @@
   const maxRetries=Math.max(0,Math.min(2,Number(options.retries)||0));
   const method=String(options.method||'GET').toUpperCase();
   const headers=new Headers(options.headers||{});
-  headers.set('X-Request-ID',requestId);
-  headers.set('Idempotency-Key',idempotencyKey);
-  headers.set('X-Oracle-Contract',options.contract||'card-services-v1');
+  // Orange Brook's public search/browser endpoints allow standard headers only.
+  // Rogers allows Oracle's request tracking and anonymous per-browser quota identity.
+  if(key!=='search'&&key!=='codePhi'){
+   headers.set('X-Request-ID',requestId);
+   headers.set('Idempotency-Key',idempotencyKey);
+   headers.set('X-Oracle-Contract',options.contract||'card-services-v1');
+   if(key!=='localComfy'&&key!=='localHealth')headers.set('X-Infinity-User',clientId());
+  }
   let attempt=0;
   while(true){
    const controller=new AbortController();
