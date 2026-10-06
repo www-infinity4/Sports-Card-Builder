@@ -44,6 +44,7 @@ let imageReadPromise=Promise.resolve();
 let imageReadState='idle';
 let lastVision=null;
 let lastWebContext=[];
+let lastImageComparison=null;
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -74,6 +75,7 @@ function builderDescription(freeform=''){
   semantic?'IMAGE SEMANTIC DESCRIPTION: '+semantic+'.':'',
   mediaClues.length?'Media clues: '+mediaClues.join('; ')+'.':'',
   eraClues.length?'Era clues: '+eraClues.join('; ')+'.':'',
+  lastImageComparison?.compared?'SEARXNG IMAGE COMPARISON: '+JSON.stringify({title:lastImageComparison.title,context:lastImageComparison.context,brand:lastImageComparison.brand,series:lastImageComparison.series,date:lastImageComparison.date,confidence:lastImageComparison.confidence,matches:lastImageComparison.matches,evidence:lastImageComparison.evidence})+'.':'',
   keywords.length?'Visual keywords: '+keywords.join(', ')+'.':'',
   'BUILD SETTINGS: style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
   s.identity.cardNumber?'Internal card number: '+s.identity.cardNumber+'.':'',
@@ -609,7 +611,63 @@ Return only the query. Preserve exact visible title/band/product/team words when
  return merged;
 }
 
-async function completeVisionIdentity(data={},webContext=[]){
+async function fetchImageSearchComparison(data={},blob=null){
+ if(!blob)return null;
+ const visible=asTextArray(data.visibleText).slice(0,8);
+ const hint=String($('message')?.value||'').trim();
+ const fallbackTerms=[
+  ...asTextArray(data.titleOptions).slice(0,2),
+  ...asTextArray(data.keywords).slice(0,5),
+  ...asTextArray(data.mediaClues).slice(0,3)
+ ].filter(Boolean);
+ const query=[hint,visible.join(' ')||fallbackTerms.join(' ')].filter(Boolean).join(' ').trim().slice(0,220);
+ if(!query)return null;
+ try{
+  const u=new URL(WEB_CONTEXT_SEARCH);
+  u.search=new URLSearchParams({q:query,format:'json',categories:'images',safesearch:'1'});
+  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'},cache:'no-store'},12000);
+  if(!res.ok)return null;
+  const json=await res.json().catch(()=>({}));
+  const candidates=(Array.isArray(json.results)?json.results:[]).map((x,index)=>({
+   index,
+   title:String(x.title||'').slice(0,240),
+   snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,700),
+   url:String(x.url||'').slice(0,1000),
+   image:String(x.img_src||x.thumbnail_src||x.thumbnail||'').slice(0,2400)
+  })).filter(x=>x.image).slice(0,6);
+  if(!candidates.length)return null;
+
+  $('status').textContent='SearXNG found '+candidates.length+' image results. Comparing the actual images…';
+  const transport=await prepareTransportImage(blob,{max:1000,maxBytes:2_500_000});
+  const form=new FormData();
+  form.append('image',transport,'source.jpg');
+  form.append('candidates',JSON.stringify(candidates));
+  const compare=await fetchWithTimeout(SERVICE+'/v1/image-compare',{method:'POST',body:form},40000);
+  const out=await compare.json().catch(()=>({}));
+  if(!compare.ok||!out.ok)return null;
+  return {...out,query};
+ }catch{return null}
+}
+
+function mergeImageComparison(data={},comparison=null){
+ if(!comparison||Number(comparison.confidence||0)<55)return data;
+ const prepend=(value,arr)=>[...new Set([String(value||'').trim(),...asTextArray(arr)].filter(Boolean))];
+ return {
+  ...data,
+  titleOptions:prepend(comparison.title,data.titleOptions),
+  contextOptions:prepend(comparison.context,data.contextOptions),
+  brandOptions:prepend(comparison.brand,data.brandOptions),
+  seriesOptions:prepend(comparison.series,data.seriesOptions),
+  dateOptions:prepend(comparison.date,data.dateOptions),
+  keywords:[...new Set([
+   ...asTextArray(data.keywords),
+   ...asTextArray(comparison.evidence)
+  ])],
+  imageSearchComparison:comparison
+ };
+}
+
+async function completeVisionIdentity(data={},webContext=[],imageComparison=null){
  const visible=(Array.isArray(data.visibleText)?data.visibleText:[]).map(v=>String(v||'').trim()).filter(Boolean);
  const inputBase=`You are the senior image-data interpreter for a collectible-card builder. Convert the raw image-reader result into editable fields. Use ONLY evidence present in the reader payload. Do not identify an unknown real person from appearance alone. Do not invent a team, movie, brand, date, product, band, athlete, actor, logo, or event. Visible text may support a field only when it clearly functions as a title/name/logo rather than background noise.
 
@@ -621,6 +679,9 @@ ${String($('message')?.value||'').trim()}
 
 WEB CONTEXT RESULTS (source/context lookup from visible text or the user's explicit hint; never from face recognition):
 ${JSON.stringify(webContext)}
+
+SEARXNG IMAGE-SEARCH COMPARISON (the uploaded image was visually compared with returned search images using non-biometric evidence):
+${JSON.stringify(imageComparison||{})}
 
 Return ONLY JSON:
 {
@@ -639,6 +700,7 @@ Rules:
 - subjectType and series may use the reader's visualTraits, eraClues, mediaClues, objects, colors, environment and semanticDescription.
 - Use a user-provided semantic hint when it directly names or describes the intended subject/context.
 - Web results may strengthen context, brand, series, date/era, source title or media context when they agree with visible text/user hint.
+- Image-search comparison is stronger than text-only search metadata when it has a high visual score AND agrees with visible text/artwork/layout.
 - Never identify a real person or fictional/TV/movie character from appearance alone.
 - Never substitute a made-up person, brand, team, date, or title.`;
 
@@ -924,7 +986,7 @@ function resetImageDataForNewSource(){
  for(const id of ['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput']){
   if($(id))$(id).value='';
  }
- lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];
+ lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];lastImageComparison=null;
 }
 
 function setCreateAvailability(ready,label='Create Card'){
@@ -945,7 +1007,11 @@ async function retryCurrentImageRead(){
   applyVisionResult(normalizedVision,{overwrite:true});
   const webContext=await fetchWebContextForImage(normalizedVision);
   lastWebContext=webContext;
-  const vision=await completeVisionIdentity(normalizedVision,webContext);
+  const imageComparison=await fetchImageSearchComparison(normalizedVision,sourceFile);
+  lastImageComparison=imageComparison;
+  const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
+  applyVisionResult(enrichedVision,{overwrite:true});
+  const vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);
   if(generation!==photoReadGeneration)return;
   lastVision={...normalizedVision,...vision};
   applyVisionResult(vision,{overwrite:true});
@@ -1005,9 +1071,15 @@ async function setPhoto(file){
    $('status').textContent='AI image data received. Checking visible text and web context…';
    const webContext=await fetchWebContextForImage(normalizedVision);
    lastWebContext=webContext;
-   $('status').textContent=webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
+   const imageComparison=await fetchImageSearchComparison(normalizedVision,file);
+   lastImageComparison=imageComparison;
+   const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
+   applyVisionResult(enrichedVision,{overwrite:true});
+   $('status').textContent=imageComparison?.compared
+    ?'SearXNG image comparison finished. GPT is organizing the verified fields…'
+    :webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
 
-   const vision=await completeVisionIdentity(normalizedVision,webContext);
+   const vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    lastVision={...normalizedVision,...vision};
    applyVisionResult(vision,{overwrite:true});
@@ -1251,6 +1323,46 @@ Rules:
  return BUILDER&&toolPlan?BUILDER.normalizeAIPlan(plan,toolPlan):plan;
 }
 
+
+
+async function buildCompactRecoveryPlan(description){
+ const s=state();
+ const input=`You are Oracle, the final GPT manager for a collectible-card renderer. The larger planning pass failed. Produce a compact executable plan using the verified image data below.
+
+VERIFIED BUILD DESCRIPTION:
+${description}
+
+VISIBLE OCR:
+${JSON.stringify(asTextArray(lastVision?.visibleText))}
+
+IMAGE SEARCH COMPARISON:
+${JSON.stringify(lastImageComparison||{})}
+
+LOCKED USER SETTINGS:
+${JSON.stringify(s.selections)}
+
+Return ONLY JSON:
+{"renderPrompt":"","suggestions":[],"mustPreserve":[],"mustAvoid":[]}
+
+Rules:
+- renderPrompt must be one complete image-editing instruction using the uploaded image as reference image 0.
+- Preserve the uploaded image subject and visible factual details.
+- Respect exact OCR and high-confidence SearXNG image comparison context.
+- Do not invent identity, brand, date, team or title.
+- Do not force sports semantics onto music, art, products or other non-sports subjects.
+- Keep the full sharp card perimeter visible and produce one finished collectible card, not a mockup or template.
+- Do not ask the user questions.`;
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
+  method:'POST',
+  headers:{'Content-Type':'application/json','Accept':'application/json'},
+  body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'compact-card-plan-recovery'}})
+ },30000);
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok)throw new Error('compact_design_unavailable: '+String(d.error||r.status));
+ const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
+ if(!plan?.renderPrompt)throw new Error('compact_design_invalid');
+ return plan;
+}
 
 
 async function buildReferencePlan(description){
@@ -1674,7 +1786,12 @@ async function createCard(count=1,mode='original'){
   }catch(firstPlanError){
    stage('plan','active','GPT is retrying the card plan with a stricter production brief…');
    const recoveryDescription=lastDescription+'\nRECOVERY PASS: The first planning call failed. Produce a simpler but stronger executable card plan. Preserve every supported fact and every explicit user instruction. Do not invent missing identity or branding.';
-   lastPlan=await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
+   try{
+    lastPlan=await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
+   }catch(secondPlanError){
+    stage('plan','active','GPT is rebuilding a compact executable card plan…');
+    lastPlan=await buildCompactRecoveryPlan(recoveryDescription);
+   }
   }
   renderSkillsPanel(lastAbilityRoute);
   stage('plan','done','GPT plan ready.');
