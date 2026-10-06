@@ -91,7 +91,7 @@ function activateChoice(group,value,advance=true){
  CARD_STATE?.setSelection(group,value);
  updateBuilderSummary();
  if(advance){
-  const next=group==='border'?'style':group==='style'?'finish':group==='finish'?'collector':null;
+  const next=group==='style'?'border':group==='border'?'finish':group==='finish'?'collector':null;
   if(next)completeBuilderStep(group,labelFor(group,value),next);
  }
 }
@@ -125,15 +125,24 @@ function initBuilderControls(){
   const s=state().selections;
   completeBuilderStep('collector',[s.oneOfOne?'1/1':'no 1/1',s.signature==='signature'?'signature':'no signature',s.useLogo?'logo':'no logo',s.buildBack?'back':'front only'].join(' · '),'identity');
  });
- ['editTitleBtn','editBrandBtn','editSeriesBtn'].forEach(id=>$(id).addEventListener('click',()=>{$('customFields').classList.add('open');}));
- const inputMap={cardTitleInput:'title',cardBrandInput:'brand',cardLogoInput:'logoText',cardSeriesInput:'series',cardDateInput:'dateText'};
- Object.entries(inputMap).forEach(([id,key])=>$(id).addEventListener('input',e=>{
+ ['editBrandBtn','editSeriesBtn'].forEach(id=>$(id)?.addEventListener('click',()=>{$('customFields').classList.add('open');}));
+ $('showNameToggle')?.addEventListener('click',()=>{
+  const on=!state().selections.showName;CARD_STATE?.setSelection('showName',on);
+  $('showNameToggle').classList.toggle('active',on);$('showNameToggle').textContent=on?'Name On':'Name Off';
+ });
+ $('showContextToggle')?.addEventListener('click',()=>{
+  const on=!state().selections.showContext;CARD_STATE?.setSelection('showContext',on);
+  $('showContextToggle').classList.toggle('active',on);$('showContextToggle').textContent=on?'Team / Movie On':'Team / Movie Off';
+ });
+ const inputMap={cardTitleInput:'title',cardContextInput:'context',cardBrandInput:'brand',cardSeriesInput:'series',cardDateInput:'dateText'};
+ Object.entries(inputMap).forEach(([id,key])=>$(id)?.addEventListener('input',e=>{
   CARD_STATE?.setIdentity(key,e.target.value);
+  if(key==='brand'){CARD_STATE?.setIdentity('logoText',e.target.value);if($('cardLogoInput'))$('cardLogoInput').value=e.target.value;}
   if(key==='title'&&CARD_NUMBERING)state().identity.cardNumber=e.target.value?CARD_NUMBERING.number(e.target.value,1):'';
  }));
  $('identityContinue').addEventListener('click',()=>{
   const s=state();const title=s.identity.title||s.detected.title||'Title not set';
-  completeBuilderStep('identity',[title,s.identity.brand,s.identity.series,s.identity.dateText].filter(Boolean).join(' · '),null);
+  completeBuilderStep('identity',[title,s.identity.context,s.identity.brand,s.identity.series,s.identity.dateText].filter(Boolean).join(' · '),null);
  });
  updateBuilderSummary();
 }
@@ -142,7 +151,7 @@ function applyReaderSuggestions(data={}){
  const box=$('readerIdeas');box.innerHTML='';
  const suggestions=[];
  for(const title of (data.titleOptions||[]).slice(0,4))suggestions.push({label:title,apply:()=>{CARD_STATE?.setIdentity('title',title);$('cardTitleInput').value=title;state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';}});
- for(const style of (data.styleOptions||[]).slice(0,4))suggestions.push({label:style,apply:()=>{if(['flagship','vintage','contemporary','abstract'].includes(style))activateChoice('style',style);}});
+ // Style is chosen by the user first. Image reading must never silently change it.
  for(const item of suggestions){
   const b=document.createElement('button');b.type='button';b.className='choiceBtn';b.textContent=item.label;b.addEventListener('click',item.apply);box.appendChild(b);
  }
@@ -151,6 +160,10 @@ function applyReaderSuggestions(data={}){
 window.applyOracleReaderSuggestions=applyReaderSuggestions;
 
 initBuilderControls();
+{
+ const controls=$('builderControls'),top=document.querySelector('.composeTop');
+ if(controls&&top&&top.parentNode)top.parentNode.insertBefore(controls,top);
+}
 
 
 function setBusy(busy,label='Creating…'){
@@ -278,10 +291,8 @@ async function showResult(index){
 
 async function finishOutput(out){
  if(!out?.dataURI)throw new Error('empty_image');
- const base=out.mode==='server-composite'?out.dataURI:out.dataURI;
- const labeled=await stampFrontIdentity(base);
- const marked=await stampCollectorMarks(labeled);
- const finished=await stampProductLine(marked);
+ const base=out.dataURI;
+ const finished=await stampCollectorMarks(base);
  const img=new Image();img.src=finished;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('image_display_failed'))});
  results.push(finished);await showResult(results.length-1);return finished;
 }
@@ -337,55 +348,25 @@ function titleCase(value){
  return String(value||'').trim().replace(/\b\w/g,c=>c.toUpperCase());
 }
 async function completeVisionIdentity(data={}){
- const fallbackTitle=firstText(data.titleOptions)||titleCase(data.subjectType)||titleCase(firstText(data.keywords))||'Featured Card';
- const fallbackBrand=firstText(data.brandOptions)||'Oracle Originals';
- const fallbackLogo=firstText(data.logoOptions)||fallbackBrand;
- const fallback={
+ const visible=(Array.isArray(data.visibleText)?data.visibleText:[]).map(v=>String(v||'').trim()).filter(Boolean);
+ const title=firstText(data.titleOptions)||firstText(visible)||titleCase(data.subjectType)||'';
+ const brand=firstText(data.brandOptions)||'';
+ const context=firstText(data.teamOptions)||firstText(data.movieOptions)||firstText(data.contextOptions)||'';
+ return {
   ...data,
-  titleOptions:[fallbackTitle,...(data.titleOptions||[]).filter(x=>String(x).trim()!==fallbackTitle)],
-  brandOptions:[fallbackBrand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==fallbackBrand)],
-  logoOptions:[fallbackLogo,...(data.logoOptions||[]).filter(x=>String(x).trim()!==fallbackLogo)]
+  titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
+  brandOptions:brand?[brand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==brand)]:[],
+  logoOptions:brand?[brand]:[],
+  contextOptions:context?[context]:[]
  };
- try{
-  const input=`Complete the identity fields for a fantasy collectible card from IMAGE-READER METADATA. Return ONLY JSON:
-{"title":"","brand":"","logoText":"","series":"","dateText":"","style":""}
-
-IMAGE-READER METADATA:
-${JSON.stringify(data)}
-
-Rules:
-- Ground title in what the image reader actually detected. A strange or viral product name is allowed when supported by title candidates, visible text, or keywords.
-- Never invent the identity of a real person.
-- Use a real brand only when supported by the metadata. Otherwise create a short fantasy card/product brand appropriate to the subject.
-- logoText should be a short printable logo treatment, usually 1-3 words.
-- Do not return blanks: Auto Build must arrive with a usable title, brand, and logo treatment.
-- Keep title concise enough to print on the card.`;
-  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'image-identity-completion'}})},6500);
-  const d=await r.json().catch(()=>({}));
-  const parsed=r.ok&&d.ok?extractJSON(String(d.output||d.output_text||d.answer||'')):null;
-  if(parsed){
-   const title=String(parsed.title||fallbackTitle).trim();
-   const brand=String(parsed.brand||fallbackBrand).trim();
-   const logoText=String(parsed.logoText||brand||fallbackLogo).trim();
-   return {
-    ...fallback,
-    titleOptions:[title,...fallback.titleOptions.filter(x=>String(x).trim()!==title)],
-    brandOptions:[brand,...fallback.brandOptions.filter(x=>String(x).trim()!==brand)],
-    logoOptions:[logoText,...fallback.logoOptions.filter(x=>String(x).trim()!==logoText)],
-    seriesOptions:parsed.series?[String(parsed.series)]:[],
-    dateOptions:parsed.dateText?[String(parsed.dateText),...(fallback.dateOptions||[])]:fallback.dateOptions||[],
-    styleOptions:parsed.style?[String(parsed.style),...(fallback.styleOptions||[])]:fallback.styleOptions||[]
-   };
-  }
- }catch{}
- return fallback;
 }
 
 function applyVisionResult(data){
  if(!data)return;
- const title=firstText(data.titleOptions)||titleCase(data.subjectType)||titleCase(firstText(data.keywords))||'Featured Card';
- const brand=firstText(data.brandOptions)||'Oracle Originals';
- const logo=firstText(data.logoOptions)||brand;
+ const title=firstText(data.titleOptions)||titleCase(data.subjectType)||'';
+ const brand=firstText(data.brandOptions)||'';
+ const logo=brand;
+ const context=firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions)||'';
  const series=firstText(data.seriesOptions);
  const date=firstText(data.dateOptions);
  const detected={
@@ -393,6 +374,7 @@ function applyVisionResult(data){
   subjectType:data.subjectType||'',
   brand,
   logo,
+  context,
   era:date,
   date,
   keywords:Array.isArray(data.keywords)?data.keywords:[]
@@ -407,9 +389,13 @@ function applyVisionResult(data){
   CARD_STATE?.setIdentity('brand',brand);
   $('cardBrandInput').value=brand;
  }
- if(!state().identity.logoText){
-  CARD_STATE?.setIdentity('logoText',logo);
-  $('cardLogoInput').value=logo;
+ if(brand&&!state().identity.logoText){
+  CARD_STATE?.setIdentity('logoText',brand);
+  if($('cardLogoInput'))$('cardLogoInput').value=brand;
+ }
+ if(context&&!state().identity.context){
+  CARD_STATE?.setIdentity('context',context);
+  if($('cardContextInput'))$('cardContextInput').value=context;
  }
  if(series&&!state().identity.series){
   CARD_STATE?.setIdentity('series',series);
@@ -424,7 +410,8 @@ function applyVisionResult(data){
   styleOptions:data.styleOptions||[],
   subjectType:data.subjectType||'',
   brandOptions:data.brandOptions||[brand],
-  logoOptions:data.logoOptions||[logo],
+  logoOptions:brand?[brand]:[],
+  contextOptions:context?[context]:[],
   dateOptions:data.dateOptions||[],
   visibleText:data.visibleText||[],
   keywords:data.keywords||[]
@@ -577,7 +564,7 @@ async function setPhoto(file){
  const vision=await completeVisionIdentity(visionRaw||{});
  applyVisionResult(vision);
  const autoTitle=state().identity.title||firstText(vision.titleOptions);
- $('status').textContent='Auto Build read the image'+(autoTitle?': '+autoTitle:'')+'. Title, brand, and logo are filled in; change them only if you want.';
+ $('status').textContent='Image read complete'+(autoTitle?': '+autoTitle:'')+'. Check the name and team/movie fields; nothing unsupported will be invented.';
 }
 $('photo').addEventListener('change',async e=>{
  const files=[...(e.target.files||[])].filter(f=>f.type.startsWith('image/'));
@@ -1005,44 +992,7 @@ function showBack(){
 }
 
 
-async function stampFrontIdentity(dataURI){
- const s=state(),id=s.identity||{};
- const title=(id.title||s.detected?.title||'').trim();
- const brand=(s.selections.useBrand?id.brand:'')||'';
- const logo=(s.selections.useLogo?id.logoText:'')||'';
- const series=id.series||'';
- const date=s.selections.includeDate?(id.dateText||''):'';
- const cardNumber=id.cardNumber||'';
- if(!title&&!brand&&!logo&&!series&&!date&&!cardNumber)return dataURI;
- const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('front_identity_load_failed'))});
- const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
- const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
- const w=canvas.width,h=canvas.height,footer=Math.max(34,Math.round(h*.044));
- const pad=Math.round(w*.035);
- const panelH=Math.max(78,Math.round(h*.105));
- const y=h-footer-panelH;
- const dark=s.selections.border==='black'||s.selections.border==='hologram'||s.selections.border==='chrome';
- ctx.fillStyle=dark?'rgba(10,13,17,.88)':'rgba(255,255,255,.94)';
- ctx.fillRect(pad,y,w-pad*2,panelH);
- ctx.strokeStyle=dark?'rgba(255,255,255,.22)':'rgba(20,27,34,.18)';
- ctx.lineWidth=Math.max(1,Math.round(w*.0016));ctx.strokeRect(pad,y,w-pad*2,panelH);
- ctx.textBaseline='alphabetic';ctx.textAlign='left';
- const ink=dark?'#ffffff':'#11161c';
- const sub=dark?'rgba(255,255,255,.78)':'rgba(17,22,28,.72)';
- ctx.fillStyle=ink;
- ctx.font='900 '+Math.max(22,Math.round(w*.045))+'px Arial, Helvetica, sans-serif';
- const displayTitle=title||brand||logo;
- if(displayTitle)ctx.fillText(displayTitle,pad+Math.round(w*.022),y+Math.round(panelH*.48),w-Math.round(w*.18));
- ctx.font='800 '+Math.max(11,Math.round(w*.018))+'px Arial, Helvetica, sans-serif';
- ctx.fillStyle=sub;
- const secondary=[brand&&brand!==displayTitle?brand:'',logo&&logo!==displayTitle&&logo!==brand?logo:'',series,date].filter(Boolean).join(' · ');
- if(secondary)ctx.fillText(secondary,pad+Math.round(w*.022),y+Math.round(panelH*.74),w-Math.round(w*.23));
- if(cardNumber){
-  ctx.textAlign='right';ctx.fillStyle=sub;ctx.font='900 '+Math.max(11,Math.round(w*.018))+'px Arial, Helvetica, sans-serif';
-  ctx.fillText(cardNumber,w-pad-Math.round(w*.022),y+Math.round(panelH*.74));
- }
- return canvas.toDataURL('image/jpeg',.97);
-}
+async function stampFrontIdentity(dataURI){return dataURI;}
 
 async function stampCollectorMarks(dataURI){
  const s=state();
@@ -1073,47 +1023,81 @@ async function stampCollectorMarks(dataURI){
  return canvas.toDataURL('image/jpeg',.97);
 }
 
-async function stampProductLine(dataURI){
- const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('stamp_load_failed'))});
- const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
- const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
- const h=Math.max(34,Math.round(canvas.height*.044));
- ctx.fillStyle='rgba(12,17,23,.92)';ctx.fillRect(0,canvas.height-h,canvas.width,h);
- const text='Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC';
- ctx.font=Math.max(10,Math.round(canvas.width*.017))+'px Arial, sans-serif';ctx.fillStyle='rgba(255,255,255,.94)';ctx.textAlign='center';ctx.textBaseline='middle';
- ctx.fillText(text,canvas.width/2,canvas.height-h/2,canvas.width-Math.round(canvas.width*.04));
- return canvas.toDataURL('image/jpeg',.95);
-}
+async function stampProductLine(dataURI){return dataURI;}
 
 
-async function renderExactWhiteFlagship(sourceBlob){
+async function renderExactCard(sourceBlob){
  const img=new Image();img.src=URL.createObjectURL(sourceBlob);
  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('source_image_load_failed'))});
  const canvas=document.createElement('canvas');canvas.width=768;canvas.height=1024;
  const ctx=canvas.getContext('2d',{alpha:false});
- ctx.fillStyle='#ffffff';ctx.fillRect(0,0,768,1024);
+ const s=state(),id=s.identity||{},style=s.selections.style||'flagship',border=s.selections.border||'white';
 
- // clean flagship white border
- ctx.fillStyle='#ffffff';ctx.fillRect(28,28,712,968);
- ctx.strokeStyle='#d8dde2';ctx.lineWidth=3;ctx.strokeRect(42,42,684,940);
+ let paper='#ffffff',ink='#11161c',accent='#c62f2f',accent2='#244d77';
+ if(style==='donruss'){paper='#f0eadb';ink='#171717';accent='#d04a2f';accent2='#263b67'}
+ else if(style==='fleer'){paper='#f8fbfd';ink='#15202a';accent='#2b77b8';accent2='#dc3a45'}
+ else if(style==='upperdeck'){paper='#e8edf1';ink='#15202a';accent='#7b8f9e';accent2='#2d5d8a'}
+ else if(style==='topps'){paper='#fbfaf6';ink='#121820';accent='#d53b32';accent2='#315d8b'}
 
- // photo window
- const px=66,py=78,pw=636,ph=744;
- ctx.fillStyle='#f6f7f8';ctx.fillRect(px,py,pw,ph);
+ if(border==='black'){paper='#111318';ink='#ffffff'}
+ if(border==='chrome'){paper='#d8dde2';ink='#11161c'}
+ if(border==='hologram'){paper='#e8edf4';ink='#11161c'}
+
+ ctx.fillStyle=paper;ctx.fillRect(0,0,768,1024);
+
+ // Card-family geometry. This is deterministic card composition, not image generation.
+ if(style==='donruss'){
+  ctx.fillStyle=accent;ctx.fillRect(24,24,720,22);ctx.fillStyle=accent2;ctx.fillRect(24,52,720,12);
+  ctx.save();ctx.translate(650,820);ctx.rotate(-.22);ctx.fillStyle=accent;ctx.fillRect(-120,-18,250,36);ctx.restore();
+ }else if(style==='fleer'){
+  ctx.fillStyle=accent;ctx.fillRect(24,24,10,976);ctx.fillStyle=accent2;ctx.fillRect(40,24,7,976);
+ }else if(style==='upperdeck'){
+  ctx.strokeStyle='#7f909c';ctx.lineWidth=6;ctx.strokeRect(28,28,712,968);
+  ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.strokeRect(38,38,692,948);
+ }else if(style==='topps'){
+  ctx.fillStyle=accent;ctx.fillRect(30,30,708,8);ctx.fillStyle=accent2;ctx.fillRect(30,43,708,5);
+ }else{
+  ctx.strokeStyle=border==='black'?'#eceff2':'#d8dde2';ctx.lineWidth=3;ctx.strokeRect(36,36,696,952);
+ }
+
+ const px=58,py=76,pw=652,ph=754;
+ ctx.fillStyle='#f3f4f5';ctx.fillRect(px,py,pw,ph);
  const scale=Math.max(pw/img.naturalWidth,ph/img.naturalHeight);
  const sw=pw/scale,sh=ph/scale;
  const sx=Math.max(0,(img.naturalWidth-sw)/2),sy=Math.max(0,(img.naturalHeight-sh)/2);
  ctx.drawImage(img,sx,sy,sw,sh,px,py,pw,ph);
  URL.revokeObjectURL(img.src);
+ ctx.strokeStyle=border==='black'?'#f5f5f5':'#1a2026';ctx.lineWidth=2;ctx.strokeRect(px,py,pw,ph);
 
- // restrained inner rule
- ctx.strokeStyle='#171b20';ctx.lineWidth=2;ctx.strokeRect(px,py,pw,ph);
+ // Brand is the logo. It is text, never an invented image.
+ const brand=(id.brand||'').trim();
+ if(s.selections.useBrand&&brand){
+  ctx.fillStyle=ink;ctx.textAlign='left';ctx.font='900 25px Arial, Helvetica, sans-serif';
+  ctx.fillText(brand,58,61,360);
+ }
 
- // identity strip left intentionally plain; exact text is added later
- ctx.fillStyle='rgba(255,255,255,.96)';ctx.fillRect(66,822,636,118);
- ctx.strokeStyle='#d9dde1';ctx.lineWidth=2;ctx.strokeRect(66,822,636,118);
+ // Name and team/movie/context are composed directly into the card, not a black caption bar.
+ const title=(id.title||s.detected?.title||'').trim();
+ const context=(id.context||'').trim();
+ ctx.textAlign='left';ctx.fillStyle=ink;
+ if(s.selections.showName&&title){
+  ctx.font='900 34px Arial, Helvetica, sans-serif';
+  ctx.fillText(title,58,880,610);
+ }
+ if(s.selections.showContext&&context){
+  ctx.font='800 18px Arial, Helvetica, sans-serif';
+  ctx.fillText(context,58,912,610);
+ }
+ const detail=[id.series,s.selections.includeDate?id.dateText:''].filter(Boolean).join(' · ');
+ if(detail){
+  ctx.font='700 14px Arial, Helvetica, sans-serif';ctx.globalAlpha=.8;ctx.fillText(detail,58,940,610);ctx.globalAlpha=1;
+ }
 
- return {ok:true,dataURI:canvas.toDataURL('image/jpeg',.97),mode:'exact-source'};
+ // Legal line stays readable without creating a bottom bar.
+ ctx.textAlign='center';ctx.font='700 11px Arial, Helvetica, sans-serif';ctx.fillStyle=ink;ctx.globalAlpha=.78;
+ ctx.fillText('Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC',384,998,700);
+ ctx.globalAlpha=1;
+ return {ok:true,dataURI:canvas.toDataURL('image/png'),mode:'exact-source'};
 }
 
 async function blobToDataURI(blob){
@@ -1138,28 +1122,9 @@ async function renderWithComfy(blob,prompt){
 }
 
 async function renderCard(blob,prompt,description,designBlob=null){
- try{
-  const comfy=await renderWithComfy(blob,prompt);
-  return {...comfy,mode:'comfyui-flux'};
- }catch(comfyError){
-  if(comfyError.code!=='renderer_not_configured'&&comfyError.code!=='renderer_offline'){
-   console.warn('Comfy renderer unavailable:',comfyError);
-  }
- }
- const form=new FormData();
- form.append('image',blob,'subject.jpg');
- if(designBlob)form.append('design_reference',designBlob,'design-reference.jpg');
- form.append('prompt',prompt);
- form.append('request',description);
- if(ABILITY_ROUTER&&lastToolPlan){
-  lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
-  form.append('ability_route',JSON.stringify(lastAbilityRoute));
-  form.append('build_spec',JSON.stringify(lastToolPlan));
- }
- const r=await fetch(SERVICE+'/v1/image',{method:'POST',body:form});
- const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok){const e=new Error(String(d.error||'generation_failed'));e.code=String(d.error||'');throw e}
- return d;
+ // Exact-source policy: this app composes cards from the uploaded pixels.
+ // It does not ask FLUX, ComfyUI, or any image model to invent/repaint the subject.
+ return await renderExactCard(blob);
 }
 
 async function createCard(count=1,mode='original'){
@@ -1241,6 +1206,6 @@ $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
- results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
