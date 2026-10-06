@@ -46,3 +46,23 @@ test('future canonical routes remain honestly unavailable; Comfy accepts one ref
  assert.equal(capabilities.twoImage.comfy,'unavailable');
  assert.ok(capabilities.futureAliases.every(alias=>alias.implemented===false&&alias.status==='unavailable'));
 });
+
+test('Wikimedia Commons provides clearly labeled image candidates during a SearXNG outage',async()=>{
+ const fetchFallback=async url=>{
+  const address=String(url);
+  if(address.includes('orange-brook-a2ac'))throw new TypeError('search container offline');
+  if(address.includes('commons.wikimedia.org')){
+   return new Response(JSON.stringify({query:{pages:{
+    '1':{title:'File:PinkFloyd1973.jpg',imageinfo:[{url:'https://upload.wikimedia.org/wikipedia/commons/5/57/PinkFloyd1973.jpg',descriptionurl:'https://commons.wikimedia.org/wiki/File:PinkFloyd1973.jpg'}]}
+   }}}),{status:200,headers:{'Content-Type':'application/json'}});
+  }
+  throw new Error('unexpected fallback URL');
+ };
+ const result=await Services.searchWeb('Pink Floyd',{images:true,fetch:fetchFallback,timeoutMs:2500});
+ const data=await result.json();
+ assert.equal(result.status,200);
+ assert.equal(data.provider,'wikimedia-fallback');
+ assert.equal(data.results.length,1);
+ assert.equal(data.results[0].title,'PinkFloyd1973.jpg');
+ assert.match(data.results[0].img_src,/PinkFloyd1973\\.jpg/);
+});
