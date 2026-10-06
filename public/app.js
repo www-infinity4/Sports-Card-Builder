@@ -357,6 +357,7 @@ async function updateReviewPanel(src=''){
 
 async function showResult(index){
  const src=results[index];if(!src)return;
+ if($('resultHeading'))$('resultHeading').textContent='Finished design';
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
  renderVariationBar();await updateReviewPanel(src);
@@ -549,11 +550,18 @@ function applyVisionResult(data){
  const brand=firstText(data.brandOptions)||'';
  const logo=brand;
  const context=firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions)||'';
- const series=firstText(data.seriesOptions);
+ const subjectType=String(data.subjectType||'').trim();
+ const series=firstText(data.seriesOptions)||(
+  /portrait|person|musician|actor|athlete|player/i.test(subjectType)?'Portrait Card':
+  /product|object/i.test(subjectType)?'Product Card':
+  /vehicle/i.test(subjectType)?'Vehicle Card':
+  /poster|artwork|screenshot/i.test(subjectType)?'Collector Card':
+  subjectType?titleCase(subjectType)+' Card':'Collector Card'
+ );
  const date=firstText(data.dateOptions);
  const detected={
   title,
-  subjectType:data.subjectType||'',
+  subjectType,
   brand,
   logo,
   context,
@@ -870,7 +878,10 @@ function resetMonitor(){
  document.querySelectorAll('.buildStep').forEach(el=>{el.classList.remove('active','done','error');el.querySelector('.state').textContent='Waiting'});
  $('buildNote').textContent='Starting…';
 }
-function showMonitor(){$('empty').style.display='none';$('resultImage').style.display='none';$('buildMonitor').style.display='block';resetMonitor()}
+function showMonitor(){
+ $('empty').style.display='none';$('resultImage').style.display='none';$('buildMonitor').style.display='block';resetMonitor();
+ if($('resultHeading'))$('resultHeading').textContent='Building design';
+}
 function stage(name,state,note=''){
  const el=document.querySelector('[data-stage="'+name+'"]');if(!el)return;
  el.classList.remove('active','done','error');el.classList.add(state);
@@ -1396,23 +1407,31 @@ async function renderWithComfy(blob,prompt){
   body:JSON.stringify({imageDataURI,prompt,width:768,height:1024,denoise:.28})
  },150000);
  const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok){const e=new Error(String(d.error||'comfy_renderer_failed'));e.code=String(d.error||'');throw e}
+ if(!r.ok||!d.ok){
+  const detail=String(d.error||d.detail||'comfy_renderer_failed');
+  const e=new Error('Comfy /v1/comfy-image '+r.status+': '+detail);
+  e.code=String(d.error||'comfy_renderer_failed');e.status=r.status;e.route='/v1/comfy-image';throw e
+ }
  return d;
 }
 
 async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
- const transport=await prepareTransportImage(blob,{max:1800,maxBytes:2_800_000});
+ const transport=await prepareTransportImage(blob,{max:500,maxBytes:900000});
  const form=new FormData();
  form.append('image',transport,'subject.jpg');
  if(designBlob){
-  const designTransport=await prepareTransportImage(designBlob,{max:1400,maxBytes:2_800_000});
+  const designTransport=await prepareTransportImage(designBlob,{max:500,maxBytes:900000});
   form.append('design_reference',designTransport,'design-reference.jpg');
  }
  form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.'));
  form.append('request',String(description||prompt||'').slice(0,1800));
  const r=await fetchWithTimeout(SERVICE+'/v1/image',{method:'POST',body:form},150000);
  const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok){const e=new Error(String(d.error||'workers_ai_image_failed'));e.code=String(d.error||'');throw e}
+ if(!r.ok||!d.ok){
+  const detail=String(d.error||d.detail||'workers_ai_image_failed');
+  const e=new Error('Workers AI /v1/image '+r.status+': '+detail);
+  e.code=String(d.error||'workers_ai_image_failed');e.status=r.status;e.route='/v1/image';throw e
+ }
  return d;
 }
 
@@ -1431,10 +1450,12 @@ async function renderCard(blob,prompt,description,designBlob=null){
    return out;
   }catch(comfyError){
    console.warn('No AI renderer available',comfyError);
-   const e=new Error('AI image renderer unavailable. The builder stopped instead of showing a fake finished template.');
+   const workersDetail=String(workersError?.message||workersError||'Workers AI failed');
+   const comfyDetail=String(comfyError?.message||comfyError||'Comfy failed');
+   const e=new Error(workersDetail+' · '+comfyDetail);
    e.code='ai_renderer_unavailable';
-   e.workersError=String(workersError?.message||workersError||'');
-   e.comfyError=String(comfyError?.message||comfyError||'');
+   e.workersError=workersDetail;
+   e.comfyError=comfyDetail;
    throw e;
   }
  }
@@ -1503,8 +1524,10 @@ async function createCard(count=1,mode='original'){
  }catch(e){
   const active=document.querySelector('.buildStep.active');
   if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
-  $('buildNote').textContent='Build stopped: '+String(e?.message||e||'unknown error');
-  $('status').innerHTML='<strong>Build stopped.</strong> '+String(e?.message||'Try again.');
+  const detail=String(e?.message||e||'unknown error');
+  if($('resultHeading'))$('resultHeading').textContent='Render failed';
+  $('buildNote').textContent='Build stopped: '+detail;
+  $('status').innerHTML='<strong>Render failed.</strong> '+detail;
  }finally{
   setBusy(false);
  }
