@@ -4,8 +4,13 @@
 const VERSION='2026.10.05.1';
 
 const STYLE_CATALOG={
+  flagship:{
+    aliases:['flagship'],
+    default:{family:'premium flagship collectible card',traits:['photo-first composition','clean sharp perimeter geometry','confident editorial identity zones','polished printed-card stock','subject-domain-appropriate graphic language']},
+    years:{}
+  },
   topps:{
-    aliases:['topps','flagship'],
+    aliases:['topps'],
     default:{family:'Topps-inspired flagship',traits:['photo-first composition','disciplined rectangular border','compact player/team identity zone','period-appropriate printed card stock']},
     years:{
       '1987':['warm heritage framing','woodgrain-inspired perimeter language','small lower identity panel','vintage coated stock'],
@@ -144,7 +149,7 @@ function detectCardType(text){
   ['patch','patch/relic card'],['certificate','certificate/commemorative card']
  ];
  for(const [n,v] of types)if(t.includes(n))return v;
- return 'player card';
+ return 'collectible card';
 }
 function detectMaterials(text){
  const t=lower(text); const out=[];
@@ -187,7 +192,7 @@ function parseRequest(description){
 function resolveStyle(semantics){
  const s=semantics||{}; const entry=STYLE_CATALOG[s.brand]||null;
  const traits=[];
- let family='custom user-directed sports card';
+ let family='custom user-directed collectible card';
  if(entry){
   family=entry.default.family;
   traits.push(...entry.default.traits);
@@ -196,8 +201,8 @@ function resolveStyle(semantics){
  if(!entry&&s.year){
   const y=Number(s.year);
   if(y>=1970&&y<=1979)traits.push('1970s printed-card restraint','simple geometric border','period print texture');
-  else if(y>=1980&&y<=1989)traits.push('1980s photo-first sports-card geometry','period color blocking','vintage coated stock');
-  else if(y>=1990&&y<=1999)traits.push('1990s premium sports-card printing','strong photography','clean graphic hierarchy');
+  else if(y>=1980&&y<=1989)traits.push('1980s photo-first collectible-card geometry','period color blocking','vintage coated stock');
+  else if(y>=1990&&y<=1999)traits.push('1990s premium collectible-card printing','strong photography','clean graphic hierarchy');
   else if(y>=2000)traits.push('modern premium trading-card production','high-resolution subject treatment','precise collector-grade finish');
  }
  return {family,traits:uniq(traits),year:s.year||'',brand:s.brand||''};
@@ -212,7 +217,7 @@ function planLayout(semantics,style){
   footer:{position:'very bottom edge',contrast:'high contrast',priority:'legal/product line'},
   border:{color:s.border?.color||'',explicit:!!s.border?.explicit,width:s.border?.explicit?'clearly visible and continuous':'style appropriate'}
  };
- return {zones,styleFamily:style?.family||'custom sports card'};
+ return {zones,styleFamily:style?.family||'custom collectible card'};
 }
 function hardRequirements(semantics,style,layout){
  const s=semantics||{}; const req=[
@@ -246,15 +251,15 @@ function compilePrompt(semantics,style,layout,extras={}){
   'cropped-off card corners or hidden perimeter'
  ];
  return [
-  'ORACLE SPORTS CARD BUILD SPEC.',
+  'ORACLE COLLECTIBLE CARD BUILD SPEC.',
   'USER REQUEST: '+s.raw,
-  'CARD TYPE: '+(s.cardType||'player card')+'.',
+  'CARD TYPE: '+(s.cardType||'collectible card')+'.',
   'STYLE FAMILY: '+st.family+'.',
   st.traits?.length?'STYLE TRAITS: '+st.traits.join('; ')+'.':'',
   'LAYOUT: '+JSON.stringify(ly.zones)+'.',
   'HARD REQUIREMENTS: '+req.join(' '),
   art.length?'ADDITIONAL ART DIRECTION: '+art.join('; ')+'.':'',
-  'QUALITY BAR: contemporary professional sports-card production, coherent whole-card composition, clean edge discipline, controlled hierarchy, believable print materials, excellent subject integration, intentional negative space, precise collector detail.',
+  'QUALITY BAR: contemporary professional collectible-card production appropriate to the actual subject domain, coherent whole-card composition, clean edge discipline, controlled hierarchy, believable print materials, excellent subject integration, intentional negative space, precise collector detail.',
   'AVOID: '+avoid.join('; ')+'.',
   'Return one finished card image. Do not explain the design.'
  ].filter(Boolean).join('\n');
