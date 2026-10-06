@@ -45,12 +45,25 @@ function state(){return CARD_STATE?.state||{selections:{border:'white',style:'fl
 function builderDescription(freeform=''){
  const s=state();
  const title=s.identity.title||s.detected.title||'';
+ const context=s.identity.context||s.detected.context||'';
+ const brand=s.identity.brand||s.detected.brand||'';
+ const series=s.identity.series||'';
+ const dateText=s.identity.dateText||s.detected.date||s.detected.era||'';
+ const subjectType=s.detected.subjectType||'';
+ const keywords=Array.isArray(s.detected.keywords)?s.detected.keywords.slice(0,12):[];
  if(CARD_NUMBERING&&title&&!s.identity.cardNumber)s.identity.cardNumber=CARD_NUMBERING.number(title,1);
- const spec=CARD_TEMPLATES?CARD_TEMPLATES.compile(s,freeform):freeform;
  return [
-  title?'Subject/title: '+title+'.':'',
-  s.identity.cardNumber?'Card number: '+s.identity.cardNumber+'.':'',
-  spec
+  'IMAGE-DERIVED CARD DATA:',
+  title?'Title / subject: '+title+'.':'Title / subject: unknown.',
+  context?'Context: '+context+'.':'',
+  brand?'Brand / logo text: '+brand+'.':'',
+  series?'Series / type: '+series+'.':'',
+  dateText?'Date / era: '+dateText+'.':'',
+  subjectType?'Detected subject type: '+subjectType+'.':'',
+  keywords.length?'Visual keywords: '+keywords.join(', ')+'.':'',
+  s.identity.cardNumber?'Internal card number: '+s.identity.cardNumber+'.':'',
+  'SOURCE IMAGE POLICY: preserve the recognizable identity and important source-image details. Treat the uploaded image as the factual visual source, not as a suggestion to invent a replacement subject.',
+  freeform?'USER INSTRUCTION: '+freeform:'USER INSTRUCTION: Design the strongest coherent collectible card that fits the image and detected context.'
  ].filter(Boolean).join('\n');
 }
 
@@ -405,16 +418,74 @@ function titleCase(value){
 }
 async function completeVisionIdentity(data={}){
  const visible=(Array.isArray(data.visibleText)?data.visibleText:[]).map(v=>String(v||'').trim()).filter(Boolean);
- const title=firstText(data.titleOptions)||firstText(visible)||titleCase(data.subjectType)||'';
- const brand=firstText(data.brandOptions)||'';
- const context=firstText(data.teamOptions)||firstText(data.movieOptions)||firstText(data.contextOptions)||'';
- return {
-  ...data,
-  titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
-  brandOptions:brand?[brand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==brand)]:[],
-  logoOptions:brand?[brand]:[],
-  contextOptions:context?[context]:[]
+ const localTitle=firstText(data.titleOptions)||titleCase(data.subjectType)||'';
+ const localBrand=firstText(data.brandOptions)||'';
+ const localContext=firstText(data.teamOptions)||firstText(data.movieOptions)||firstText(data.contextOptions)||'';
+ const fallback=()=>{
+  const title=localTitle||firstText(visible)||'';
+  return {
+   ...data,
+   titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
+   brandOptions:localBrand?[localBrand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==localBrand)]:[],
+   logoOptions:localBrand?[localBrand]:[],
+   contextOptions:localContext?[localContext]:[]
+  };
  };
+ try{
+  const input=`You are the image-data interpreter for a collectible-card builder. Convert a raw image-reader result into editable fields. Use ONLY evidence present in the reader payload. Do not identify an unknown real person from appearance alone. Do not invent a team, movie, brand, date, product, band, athlete, actor, logo, or event. Visible text may support a field when it clearly functions as a name/logo/title rather than random background text.
+
+RAW IMAGE READER:
+${JSON.stringify(data)}
+
+Return ONLY JSON:
+{
+ "title":"",
+ "context":"",
+ "brand":"",
+ "series":"",
+ "date":"",
+ "subjectType":"",
+ "keywords":[],
+ "confidence":{"title":0,"context":0,"brand":0,"series":0,"date":0}
+}
+
+Field rules:
+- title: the best supported subject/title/name visible or explicitly returned by the reader. Otherwise blank.
+- context: supported team, movie, show, band, event, product line, place, or other useful context. Otherwise blank.
+- brand: only a supported brand/logo/publication/series mark. Otherwise blank.
+- series: a supported card/product/content type or useful category. Otherwise blank.
+- date: only a supported visible or reader-provided year/date/era. Otherwise blank.
+- subjectType: a short generic category such as baseball player, musician, actor, product, vehicle, landscape, or person.
+- Never turn uncertain OCR into a confident identity.`;
+  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
+   method:'POST',
+   headers:{'Content-Type':'application/json','Accept':'application/json'},
+   body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'image-data-to-fields'}})
+  },7000);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.ok)return fallback();
+  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
+  if(!parsed||typeof parsed!=='object')return fallback();
+  const title=String(parsed.title||localTitle||'').trim();
+  const brand=String(parsed.brand||localBrand||'').trim();
+  const context=String(parsed.context||localContext||'').trim();
+  const series=String(parsed.series||'').trim();
+  const date=String(parsed.date||'').trim();
+  return {
+   ...data,
+   subjectType:String(parsed.subjectType||data.subjectType||'').trim(),
+   keywords:[...new Set([...(Array.isArray(parsed.keywords)?parsed.keywords:[]),...(Array.isArray(data.keywords)?data.keywords:[])].map(v=>String(v||'').trim()).filter(Boolean))],
+   titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
+   brandOptions:brand?[brand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==brand)]:[],
+   logoOptions:brand?[brand]:[],
+   contextOptions:context?[context]:[],
+   seriesOptions:series?[series]:asTextArray(data.seriesOptions),
+   dateOptions:date?[date]:asTextArray(data.dateOptions),
+   gptFieldConfidence:parsed.confidence||{}
+  };
+ }catch{
+  return fallback();
+ }
 }
 
 function applyVisionResult(data){
@@ -1285,13 +1356,8 @@ async function createCard(count=1,mode='original'){
 
   $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 
-  // Optional enrichment is deliberately after the visible card exists.
-  const chosenTitle=state().identity.title||state().detected.title||'';
-  const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
-  const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
-  if(sportsContext&&chosenTitle){
-   fetchPlayerIntel(chosenTitle).then(v=>{if(v)lastIntel=v}).catch(()=>{});
-  }
+  // Keep the first successful card stable. Any deeper sports-data enrichment is user-triggered later,
+  // never allowed to rewrite the image-derived identity after a render.
  }catch(e){
   const active=document.querySelector('.buildStep.active');
   if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
