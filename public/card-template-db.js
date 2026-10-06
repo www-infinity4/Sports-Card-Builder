@@ -20,7 +20,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
 'use strict';
 
-const VERSION='2026.10.06.1';
+const VERSION='2026.10.06.2';
 
 const CATEGORIES={
  sports:{id:'sports',label:'Sports',brandRole:'card maker, league or team logo text actually printed in the image (e.g. Topps, Upper Deck, Yankees)',contextRole:'team, league or event',titleRole:'player / athlete name'},
@@ -38,8 +38,46 @@ const LAYOUTS={
  fullBleed:{brand:'top-left',nameplate:'lower-right',serial:'lower-right',plate:'fade'}
 };
 
+function designCharacteristics(year,line,category,design,border,layout,palette,keywords){
+ const words=(String(design)+' '+String(border)+' '+String(line)+' '+keywords.join(' ')).toLowerCase();
+ const metallic=/chrome|prizm|foil|holog|silver|gild|refractor|metallic/.test(words);
+ const photoWindow=/full.?bleed|near.?full|large photo|full.?color|main action photo/.test(words)?'large':'framed';
+ const frameWidth=/thick|bold|ornate|wide|woodgrain/.test(words)?0.075:/thin|minimal|full.?bleed/.test(words)?0.025:0.045;
+ const titleLocation=/upper band|across the top|above the photo|top/.test(words)?'top':'lower-right';
+ const teamLocation=/team name across the top|upper band|above the photo/.test(words)?'top':'lower-left';
+ const logoLocation=layout==='brandRight'?'top-right':'top-left';
+ const accents=[...new Set([
+  ...( /pennant|flag/.test(words)?['pennant']:[]),
+  ...( /circle|oval|inset|badge|medallion/.test(words)?['circle inset']:[]),
+  ...( /diagonal|slant|angular|facet/.test(words)?['diagonal geometry']:[]),
+  ...( /burst|starfield|starburst/.test(words)?['burst/star device']:[]),
+  ...( /tombstone|arch/.test(words)?['arched frame']:[]),
+  ...( /woodgrain/.test(words)?['woodgrain texture']:[])
+ ])];
+ return {
+  aspectRatio:5/7,
+  borderGeometry:String(border||'none'),
+  borderWidth:frameWidth,
+  imageCropRegion:photoWindow==='large'?{x:.045,y:.045,width:.91,height:.91}:{x:.105,y:.09,width:.79,height:.72},
+  titleNameLocation:titleLocation,
+  teamContextLocation:teamLocation,
+  logoRegion:logoLocation,
+  yearSetTreatment:year<1970?'small vintage year/set imprint':year<1990?'compact printed year/set imprint':'modern year/set label',
+  typographyCharacter:/script|signature/.test(words)?'script accent':year<1970?'compact vintage serif':year<1990?'bold print-era display':'clean contemporary display',
+  backgroundTreatment:/starfield/.test(words)?'illustrated starfield':/paint|illustrat|hand.tint/.test(words)?'illustrated/painterly':/full.?bleed/.test(words)?'photographic full-bleed':'card-specific solid or color-block treatment',
+  accentShapes:accents,
+  backOfCardStructure:category==='sports'?'player bio, team context and verified stats regions':'subject bio, set information and verified caption/credit regions',
+  statsTextRegions:category==='sports'?['lower back bio','compact verified statistics grid']:['lower back description','credits or episode/movie details'],
+  numberingLocation:'lower-right above name plate',
+  footerRegion:'bottom edge, clear of the image subject',
+  rarityFoilTreatment:metallic?String(border)+' / restrained metallic highlight':'matte or era-appropriate print finish',
+  cornerTreatment:/rounded corners|rounded card corners|rounded corner frame/.test(words)?'historical rounded corners':'sharp'
+ };
+}
 function T(id,maker,year,line,category,design,border,palette,layout='classic',keywords=[]){
- return {id,maker,year,line,category,design,border,palette,layout,keywords};
+ const entry={id,maker,year,line,category,design,border,palette,layout,keywords};
+ entry.designData=designCharacteristics(year,line,category,design,border,layout,palette,keywords);
+ return entry;
 }
 
 const TEMPLATES=[
@@ -215,12 +253,34 @@ function referenceQuery(tpl){
  return [tpl.year,tpl.maker==='Studio'?'':tpl.maker,line,kind].filter(Boolean).join(' ');
 }
 
+function compileTemplateSpec(tpl){
+ if(!tpl)return null;
+ const source=typeof tpl==='string'?get(tpl):tpl;
+ if(!source)return null;
+ const base=source.designData||designCharacteristics(source.year,source.line,source.category,source.design,source.border,source.layout,source.palette,source.keywords||[]);
+ return {
+  id:source.id,maker:source.maker,year:source.year,line:source.line,category:source.category,
+  aspectRatio:base.aspectRatio,borderGeometry:base.borderGeometry,borderWidth:base.borderWidth,
+  imageCropRegion:{...base.imageCropRegion},
+  titleNameLocation:base.titleNameLocation,teamContextLocation:base.teamContextLocation,
+  logoRegion:base.logoRegion,yearSetTreatment:base.yearSetTreatment,
+  typographyCharacter:base.typographyCharacter,backgroundTreatment:base.backgroundTreatment,
+  accentShapes:[...base.accentShapes],backOfCardStructure:base.backOfCardStructure,
+  statsTextRegions:[...base.statsTextRegions],numberingLocation:base.numberingLocation,
+  footerRegion:base.footerRegion,rarityFoilTreatment:base.rarityFoilTreatment,
+  cornerTreatment:base.cornerTreatment,palette:[...source.palette],description:source.design
+ };
+}
+
 function promptFor(tpl){
  if(!tpl)return '';
+ const spec=compileTemplateSpec(tpl);
  return [
   'CARD TEMPLATE: '+tpl.year+' '+tpl.maker+' '+tpl.line+' design language ('+tpl.category+').',
   'Design: '+tpl.design,
+  'Executable design specification: '+JSON.stringify(spec)+'.',
   'Frame/border: '+tpl.border+'. Palette: '+tpl.palette.join(', ')+'.',
+  'Preserve the specified card proportions, crop, named zones, era-specific treatment and sharp card corners unless the historical design itself requires otherwise.',
   'Layout: keep the '+LAYOUTS[tpl.layout].brand+' corner clear for the brand spot and the lower-right corner clear for the name plate and the 1/1 serial. Do not draw any text, logos, numbers or trademarks; exact text is composited afterwards.'
  ].join(' ');
 }
@@ -229,13 +289,14 @@ function promptFor(tpl){
 // and a strong 1/1 foil serial above the name plate.
 function frontLayout(W,H,tpl){
  const preset=LAYOUTS[tpl?.layout]||LAYOUTS.classic;
+ const spec=compileTemplateSpec(tpl);
  const pad=Math.max(18,Math.round(W*.045));
  const brandH=Math.max(30,Math.round(H*.05));
  const brandW=Math.round(W*.42);
  const brand={
-  x:preset.brand==='top-right'?W-pad-brandW:pad,
+  x:(spec?.logoRegion==='top-right'||preset.brand==='top-right')?W-pad-brandW:pad,
   y:pad,w:brandW,h:brandH,
-  align:preset.brand==='top-right'?'right':'left'
+  align:(spec?.logoRegion==='top-right'||preset.brand==='top-right')?'right':'left'
  };
  const plateW=Math.round(W*.74);
  const plateH=Math.max(70,Math.round(H*.11));
@@ -243,7 +304,13 @@ function frontLayout(W,H,tpl){
  const serialW=Math.max(60,Math.round(W*.2));
  const serialH=Math.round(serialW*.52);
  const serial={x:W-pad-serialW,y:nameplate.y-Math.round(pad*.45)-serialH,w:serialW,h:serialH};
- return {pad,brand,nameplate,serial,preset};
+ const crop=spec?.imageCropRegion||{x:.105,y:.09,width:.79,height:.72};
+ return {pad,brand,nameplate,serial,preset,spec,
+  photo:{x:Math.round(W*crop.x),y:Math.round(H*crop.y),w:Math.round(W*crop.width),h:Math.round(H*crop.height)},
+  titleRegion:{x:nameplate.x,y:nameplate.y,w:nameplate.w,h:nameplate.h},
+  contextRegion:{x:pad,y:H-pad-Math.round(H*.1),w:Math.round(W*.38),h:Math.round(H*.08)},
+  footer:{x:pad,y:H-pad-Math.round(H*.025),w:W-2*pad,h:Math.round(H*.02)}
+ };
 }
 
 const LABEL_PREFIX=/^(title|name|subject|brand|logo|context|team|movie|show|series|type|date|era|year)\s*[:\-–]\s*/i;
@@ -260,5 +327,5 @@ function cleanField(value,maxWords=6){
  return s.slice(0,60).trim();
 }
 
-return {VERSION,CATEGORIES,LAYOUTS,TEMPLATES,list,get,makers,findMaker,findYear,detectCategory,match,defaultFor,referenceQuery,promptFor,frontLayout,cleanField};
+return {VERSION,CATEGORIES,LAYOUTS,TEMPLATES,list,get,makers,findMaker,findYear,detectCategory,match,defaultFor,referenceQuery,promptFor,compileTemplateSpec,frontLayout,cleanField};
 });
