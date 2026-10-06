@@ -35,10 +35,11 @@ const TEMPLATES={
 };
 
 const STYLE={
+ topps:'Topps-style flagship language: photo-first composition, disciplined borders, compact name/team hierarchy and period-aware geometry. Do not copy trademarks or exact logos.',
+ donruss:'Donruss-style language: bold late-1980s geometry, saturated print color, strong lower identity treatment and angular accents. Do not copy trademarks or exact logos.',
+ fleer:'Fleer-style language: bright edge treatments, energetic color blocking, photo-forward center and compact lower-third identity. Do not copy trademarks or exact logos.',
  flagship:'Flagship: photo-first, real trading-card proportions, clean hierarchy, restrained graphics.',
- vintage:'Vintage: period print texture, simple geometry, warm stock character, historically plausible card construction.',
- contemporary:'Contemporary: modern premium sports-card spacing, crisp production, controlled foil or graphic accents.',
- abstract:'Abstract insert: experimental geometry and art direction while preserving a believable physical trading-card structure.'
+ upperdeck:'Upper Deck-style language: premium photography-led card, clean frame system, crisp spacing and restrained metallic accents. Do not copy trademarks or exact logos.'
 };
 
 const FINISH={
@@ -68,11 +69,12 @@ function compile(state,freeform=''){
   t.prompt,
   STYLE[s.style]||STYLE.flagship,
   'Material: '+(FINISH[s.finish]||FINISH.paper)+'.',
-  'TEXT POLICY: Render NO title, brand, logo text, card number, serial number, biography, captions, filler words or pseudo-lettering inside the generated artwork. Leave clean intentional zones for deterministic text overlays added after generation.',
-  'Front structure: dominant photo with clean reserved identity areas, but those areas must remain visually blank and free of generated lettering.',
-  title?'Deterministic overlay title after generation: '+title+'. Do NOT render this title in the image model output.':'No generated title text.',
-  s.useBrand&&brand?'Deterministic overlay brand after generation: '+brand+'. Do NOT render it in the image model output.':'Do not invent or render a brand name.',
-  s.useLogo&&logo?'Deterministic overlay logo text after generation: '+logo+'. Do NOT render it in the image model output.':'Do not invent or render a logo.',
+  'IMAGE POLICY: use the exact uploaded source image. Do not synthesize, replace, redraw, or hallucinate a different person, actor, player, object, uniform, face, or scene.',
+  'Front structure: dominant exact uploaded image with card graphics and deterministic typography composed by the card renderer.',
+  s.showName&&title?'Card name/title: '+title+'.':'Do not print a name/title.',
+  s.showContext&&context?'Team / movie / context line: '+context+'.':'Do not print a team/movie/context line.',
+  s.useBrand&&brand?'Brand/logo treatment: '+brand+'.':'Do not invent a brand.',
+  s.useLogo&&logo?'Logo text equals the brand unless the user explicitly changes it: '+logo+'.':'Do not invent a logo.',
   id.series?'Series: '+id.series+'.':'',
   s.includeDate&&id.dateText?'Date/era text: '+id.dateText+'.':'',
   s.signature==='signature'?'Reserve a tasteful signature zone. Do not add other text around it.':'No signature on the front.',
