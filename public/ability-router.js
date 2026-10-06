@@ -37,6 +37,13 @@ const ABILITIES={
   tasks:['title','context','series','date','collector-mark'],
   purpose:'Adds verified text after image generation so names are spelled exactly.'
  },
+ auto_card:{
+  id:'auto_card',
+  engine:'Oracle Auto Card engine',
+  runtime:'browser',
+  tasks:['zero-input-build','intent-steering','set-parallel-rarity','serial-numbering','front-back-composition','artwork-fallback-chain'],
+  purpose:'Builds a finished, numbered front and back on every try; free text, title fields or an uploaded photo steer it.'
+ },
  browser_critic:{
   id:'browser_critic',
   engine:'Code Phi Cloud Browser',

@@ -86,6 +86,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 .createBtn{border:1px solid #bec9d3;border-radius:17px;padding:13px 18px;background:
  linear-gradient(135deg,#fff,#dfeaf3 52%,#f7fbfe);color:#11161c;font-weight:950;cursor:pointer;box-shadow:0 10px 24px rgba(67,80,94,.12),inset 0 1px 0 #fff}
 .createBtn:disabled{opacity:.55;cursor:default}
+.autoBtn{background:linear-gradient(180deg,#fff6d8,#e8c66e);border-color:#c9a24a;color:#2b2110}
 #photo{display:none!important}
 .status{min-height:22px;margin-top:11px;text-align:center;color:#6f7984;font-size:.87rem}.smartIdeas{display:none;margin-top:10px;gap:7px;flex-wrap:wrap;justify-content:center}.ideaChip{border:1px solid #c8d3dc;border-radius:999px;background:rgba(255,255,255,.72);color:#4f5b66;padding:7px 10px;font-size:.78rem;font-weight:850;cursor:pointer}.sideSwitch{display:none;gap:6px}.sideBtn{border:1px solid #c7d1da;border-radius:999px;background:#f7fafc;color:#66727e;font-weight:850;padding:7px 10px;font-size:.76rem;cursor:pointer}.sideBtn.active{background:#24313d;color:#fff;border-color:#24313d}
 .status strong{color:#22282f}
@@ -246,10 +247,12 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     </div>
     <div class="promptWrap">
      <div class="promptLabel">Tell GPT what you want changed</div>
-     <textarea id="message" placeholder="Example: make this a bold 1989 baseball card, keep the face exact, use the detected name and team, sharp corners, strong full-card composition."></textarea>
+     <textarea id="message" placeholder="Optional. Auto Card: “Aaron Judge chrome gold auto /50”, “Orioles &quot;6-Run First Inning&quot; now”, “rookie superfractor”. Photo cards: make this a bold 1989 baseball card, keep the face exact."></textarea>
     </div>
     <div class="composerBottom">
      <div class="createGroup">
+      <button id="autoMake" class="createBtn autoBtn" type="button" title="Builds a finished front and back with no input. Text in the box above steers it.">⚡ Auto Card</button>
+      <button id="auto3" class="secondaryBtn" type="button">Auto ×3</button>
       <button id="make" class="createBtn">Create Card</button>
       <button id="buildLike" class="secondaryBtn" style="display:none">Build Like This Card</button>
       <button id="make3" class="secondaryBtn" style="display:none">Create 3</button>
@@ -259,7 +262,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <input id="photo" type="file" accept="image/*" multiple hidden aria-hidden="true" tabindex="-1">
     <input id="referencePhoto" type="file" accept="image/*" hidden aria-hidden="true" tabindex="-1">
    </div>
-   <div id="status" class="status">Tap the photo tile to begin.</div>
+   <div id="status" class="status">Tap ⚡ Auto Card for an instant finished card, or upload a photo to build from it.</div>
    <div id="skillsPanel" class="skillsPanel" aria-label="Active Oracle skills"></div>
    <div id="smartIdeas" class="smartIdeas" aria-label="Oracle suggestions"></div>
   </section>
@@ -270,7 +273,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <div id="sideSwitch" class="sideSwitch"><button id="frontSide" class="sideBtn active" type="button">Front</button><button id="backSide" class="sideBtn" type="button">Back</button></div>
    </div>
    <div class="canvas">
-    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload an image. GPT reads it into the fields. Add only what you want changed in the text box, then create.</div></div>
+    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Tap ⚡ Auto Card for a finished front and back with no input. Optional: type a player, set or parallel (e.g. “Aaron Judge chrome gold auto”) or upload a photo to steer it.</div></div>
     <div id="buildMonitor" class="buildMonitor" aria-live="polite">
      <div class="buildTitle">Building your card</div>
      <div class="buildSteps">
@@ -295,6 +298,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
      <button id="tightenBtn" class="actionBtn">Improve Layout</button>
      <button id="moreBtn" class="actionBtn">New Variation</button>
      <button id="backBtn" class="actionBtn">Build Back</button>
+     <button id="downloadBtn" class="actionBtn" type="button">Download</button>
      <button id="newCard" class="newBtn">New Card</button>
     </div>
    </div>
@@ -308,6 +312,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 <script src="./card-critic.js?v=20261005-1"></script>
 <script src="./builder-tools.js?v=20261006-4"></script>
 <script src="./ability-router.js?v=20261006-3"></script>
+<script src="./auto-card.js?v=20261006-1"></script>
 <script src="./app.js?v=20261006-55"></script>
 </body>
 </html>
