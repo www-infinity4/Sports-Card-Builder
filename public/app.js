@@ -407,7 +407,10 @@ async function readUploadedImage(blob){
  form.append('image',transport,'reader.jpg');
  const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},20000);
  const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.ok)return null;
+ if(!r.ok||!d.ok){
+  const e=new Error('Image reader /v1/image-read '+r.status+': '+String(d.error||d.detail||'image_read_failed'));
+  e.status=r.status;e.route='/v1/image-read';throw e;
+ }
  return d;
 }
 
