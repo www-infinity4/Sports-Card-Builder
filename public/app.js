@@ -604,6 +604,10 @@ async function readUploadedImage(blob,{review=false}={}){
   const e=new Error('Image reader /v1/image-read '+r.status+': '+String(d.error||d.detail||'image_read_failed'));
   e.status=r.status;e.route='/v1/image-read';throw e;
  }
+ if(!review&&(d.contract!=='full-read-v2'||d.instructionsApplied!==true||String(d.detail||'')!=='full'||Number(d.passes||0)<2)){
+  const e=new Error('Image reader contract mismatch: full read was not confirmed by the service');
+  e.status=r.status;e.route='/v1/image-read';e.contract=d.contract||'';throw e;
+ }
  return d;
 }
 
@@ -816,6 +820,7 @@ async function fetchImageSearchComparison(data={},blob=null){
   const compare=await fetchWithTimeout(SERVICE+'/v1/image-compare',{method:'POST',body:form},45000);
   const out=await compare.json().catch(()=>({}));
   if(!compare.ok||!out.ok)return null;
+  if(out.contract!=='image-compare-v2'||out.instructionsApplied!==true)return null;
   return {...out,query:queries[0],queries,candidateCount:candidates.length};
  }catch{return null}
 }
