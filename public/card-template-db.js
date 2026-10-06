@@ -187,8 +187,10 @@ function match(text,{category=''}={}){
   let score=0;
   if(maker&&tpl.maker===maker)score+=5;
   if(maker&&tpl.maker!==maker)score-=3;
-  const lineHit=tpl.line!=='Flagship'&&has(t,tpl.line);
-  if(lineHit)score+=6;
+  if(tpl.line!=='Flagship'){
+   if(has(t,tpl.line))score+=4;
+   else score+=2*norm(tpl.line).trim().split(' ').filter(w=>w.length>2&&has(t,w)).length;
+  }
   for(const k of tpl.keywords)if(has(t,k))score+=2;
   if(year){
    if(tpl.year===year)score+=5;

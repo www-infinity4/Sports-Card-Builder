@@ -24,6 +24,8 @@ test('match picks maker + year, tolerates typos and lines', () => {
   assert.equal(DB.match('Topps chrome refractor').id, 'topps-chrome');
   assert.equal(DB.match('1977 star wars').id, 'topps-star-wars-1977');
   assert.equal(DB.match('upper deck 1989').id, 'upperdeck-1989');
+  assert.equal(DB.match('1989 batman').id, 'topps-batman-1989');
+  assert.equal(DB.match('1966 batman').id, 'topps-batman-1966');
   assert.equal(DB.match('just a nice photo'), null);
   assert.equal(DB.match('batman', { category: 'movie' }).category, 'movie');
 });

@@ -10,6 +10,17 @@ const CARD_NUMBERING=window.OracleCardNumbering||null;
 const CARD_TEMPLATES=window.OracleCardTemplates||null;
 const CARD_BACK=window.OracleCardBack||null;
 const CARD_CRITIC=window.OracleCardCritic||null;
+const TEMPLATE_DB=window.OracleTemplateDB||null;
+const TEMPLATE_REF_KEY='oracle-template-refs-v1';
+const TEMPLATE_REF_TTL=7*24*3600*1000;
+// Route the image reader to read the whole image, not just the main subject.
+const FULL_READ_INSTRUCTIONS=[
+ 'Read EVERYTHING in this image before answering: every printed word, name, number, jersey number, logo text, watermark, caption, copyright/credit line, card-maker mark, year, team, league, studio, network, franchise and series text, in every corner and on every edge.',
+ 'Also describe the subject, scene, objects, colors, era clues and media clues.',
+ 'Decide the category: sports, movie, tv or other. If the image is itself a trading card, report the card maker (Topps, Upper Deck, Donruss, Fleer, Bowman, Panini, Score, SkyBox…) and the card year when printed or clearly identifiable.',
+ 'Return JSON with: visibleText[], logos[], numbers[], subjectType, category, cardMaker, cardYear, franchise, studio, network, team, league, movieTitle, showTitle, characterName, playerName, titleOptions[], brandOptions[], contextOptions[], keywords[], eraClues[], mediaClues[], objects[], colors[], semanticDescription.',
+ 'Never identify a real person or character from appearance alone; only use names that are printed or otherwise evidenced.'
+].join(' ');
 let lastToolPlan=null;
 let lastAbilityRoute=null;
 
@@ -45,9 +56,91 @@ let imageReadState='idle';
 let lastVision=null;
 let lastWebContext=[];
 let lastImageComparison=null;
+let lastTemplateRefs=[];
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
+
+function activeCategory(){
+ const s=state();
+ const chosen=String(s.selections.category||'auto');
+ if(chosen!=='auto')return chosen;
+ if(!TEMPLATE_DB)return 'sports';
+ const detected=String(s.detected.category||'');
+ if(detected&&detected!=='other')return detected;
+ return TEMPLATE_DB.detectCategory({
+  text:[$('message')?.value,s.identity.context,s.identity.brand,s.identity.series].filter(Boolean).join(' '),
+  subjectType:s.detected.subjectType||lastVision?.subjectType||'',
+  keywords:s.detected.keywords,
+  mediaClues:lastVision?.mediaClues,
+  semanticDescription:lastVision?.semanticDescription
+ });
+}
+function activeTemplate(){
+ if(!TEMPLATE_DB)return null;
+ const s=state();
+ const chosen=String(s.selections.template||'auto');
+ if(chosen!=='auto'){const t=TEMPLATE_DB.get(chosen);if(t)return t;}
+ const category=activeCategory();
+ const text=[$('message')?.value,s.identity.series,s.identity.dateText,s.detected.cardMaker,s.detected.cardYear].filter(Boolean).join(' ');
+ return TEMPLATE_DB.match(text,{category})||TEMPLATE_DB.defaultFor(category);
+}
+function templateLabel(t){return t?t.year+' '+t.maker+(t.line==='Flagship'?'':' '+t.line):'';}
+function populateTemplateSelect(){
+ const sel=$('cardTemplateSelect');if(!sel||!TEMPLATE_DB)return;
+ const category=String(state().selections.category||'auto');
+ const current=String(state().selections.template||'auto');
+ sel.innerHTML='';
+ const auto=document.createElement('option');auto.value='auto';auto.textContent='Auto match';sel.appendChild(auto);
+ for(const maker of TEMPLATE_DB.makers()){
+  const items=TEMPLATE_DB.list({maker}).filter(t=>category==='auto'||t.category===category).sort((a,b)=>a.year-b.year);
+  if(!items.length)continue;
+  const group=document.createElement('optgroup');group.label=maker;
+  items.forEach(t=>{const o=document.createElement('option');o.value=t.id;o.textContent=templateLabel(t);group.appendChild(o)});
+  sel.appendChild(group);
+ }
+ sel.value=[...sel.options].some(o=>o.value===current)?current:'auto';
+ CARD_STATE?.setSelection('template',sel.value);
+ refreshAutoTemplateLabel();
+}
+function refreshAutoTemplateLabel(){
+ const o=$('cardTemplateSelect')?.querySelector('option[value="auto"]');
+ if(!o)return;
+ o.textContent=state().selections.template==='auto'&&TEMPLATE_DB?'Auto: '+templateLabel(activeTemplate()):'Auto match';
+}
+function syncTemplateControls(){
+ if($('cardCategorySelect'))$('cardCategorySelect').value=state().selections.category||'auto';
+ populateTemplateSelect();
+}
+function readTemplateRefs(){
+ try{const v=JSON.parse(localStorage.getItem(TEMPLATE_REF_KEY)||'{}');return v&&typeof v==='object'?v:{}}catch{return {}}
+}
+// Builds a local database of real online example images for each template
+// design (SearXNG image search through the Cloudflare worker), cached per template.
+async function fetchTemplateReferences(tpl){
+ if(!tpl||!TEMPLATE_DB)return [];
+ const db=readTemplateRefs();
+ const hit=db[tpl.id];
+ if(hit&&Date.now()-Number(hit.at||0)<TEMPLATE_REF_TTL&&Array.isArray(hit.images))return hit.images;
+ try{
+  const query=TEMPLATE_DB.referenceQuery(tpl);
+  const u=new URL(WEB_CONTEXT_SEARCH);
+  u.search=new URLSearchParams({q:query,format:'json',categories:'images',safesearch:'1'});
+  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},10000);
+  if(!res.ok)return hit?.images||[];
+  const json=await res.json().catch(()=>({}));
+  const images=(Array.isArray(json.results)?json.results:[]).map(x=>({
+   title:String(x.title||'').slice(0,160),
+   url:String(x.url||'').slice(0,500),
+   image:String(x.img_src||x.thumbnail_src||'').slice(0,800)
+  })).filter(x=>/^https?:\/\//i.test(x.image)).slice(0,8);
+  if(images.length){
+   db[tpl.id]={at:Date.now(),query,images};
+   try{localStorage.setItem(TEMPLATE_REF_KEY,JSON.stringify(db))}catch{}
+  }
+  return images.length?images:(hit?.images||[]);
+ }catch{return hit?.images||[]}
+}
 
 function builderDescription(freeform=''){
  const s=state();
@@ -63,8 +156,12 @@ function builderDescription(freeform=''){
  const mediaClues=asTextArray(lastVision?.mediaClues).slice(0,10);
  const eraClues=asTextArray(lastVision?.eraClues).slice(0,10);
  if(CARD_NUMBERING&&title&&!s.identity.cardNumber)s.identity.cardNumber=CARD_NUMBERING.number(title,1);
+ const category=activeCategory();
+ const roles=TEMPLATE_DB?.CATEGORIES[category]||null;
+ const tpl=activeTemplate();
  return [
   'IMAGE-DERIVED CARD DATA:',
+  roles?'Card type: '+roles.label+'. Brand spot = '+roles.brandRole+'. Name plate (lower right) = '+roles.titleRole+'. Context = '+roles.contextRole+'.':'',
   title?'Title / subject: '+title+'.':'Title / subject: unknown.',
   context?'Context: '+context+'.':'',
   brand?'Brand / logo text: '+brand+'.':'',
@@ -77,7 +174,9 @@ function builderDescription(freeform=''){
   eraClues.length?'Era clues: '+eraClues.join('; ')+'.':'',
   lastImageComparison?.compared?'SEARXNG IMAGE COMPARISON: '+JSON.stringify({title:lastImageComparison.title,context:lastImageComparison.context,brand:lastImageComparison.brand,series:lastImageComparison.series,date:lastImageComparison.date,confidence:lastImageComparison.confidence,matches:lastImageComparison.matches,evidence:lastImageComparison.evidence})+'.':'',
   keywords.length?'Visual keywords: '+keywords.join(', ')+'.':'',
-  'BUILD SETTINGS: style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
+  tpl?TEMPLATE_DB.promptFor(tpl):'',
+  lastTemplateRefs.length?'TEMPLATE REFERENCE IMAGES FOUND ONLINE for '+templateLabel(tpl)+': '+lastTemplateRefs.slice(0,5).map(r=>r.title).filter(Boolean).join(' | ')+'.':'',
+  'BUILD SETTINGS: template '+(tpl?templateLabel(tpl):'none')+', style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
   s.identity.cardNumber?'Internal card number: '+s.identity.cardNumber+'.':'',
   'SOURCE IMAGE POLICY: preserve the recognizable identity and important source-image details. Treat the uploaded image as the factual visual source, not as a suggestion to invent a replacement subject.',
   freeform?'USER INSTRUCTION: '+freeform:'USER INSTRUCTION: Design the strongest coherent collectible card that fits the image and detected context.'
@@ -182,16 +281,27 @@ function initBuilderControls(){
   const on=!state().selections.showContext;CARD_STATE?.setSelection('showContext',on);
   $('showContextToggle').classList.toggle('active',on);$('showContextToggle').textContent=on?'Team / Movie On':'Team / Movie Off';
  });
+ $('cardCategorySelect')?.addEventListener('change',e=>{
+  CARD_STATE?.setSelection('category',e.target.value);
+  populateTemplateSelect();
+ });
+ $('cardTemplateSelect')?.addEventListener('change',e=>{
+  CARD_STATE?.setSelection('template',e.target.value);
+  refreshAutoTemplateLabel();
+ });
+ $('message')?.addEventListener('input',refreshAutoTemplateLabel);
  const inputMap={cardTitleInput:'title',cardContextInput:'context',cardBrandInput:'brand',cardSeriesInput:'series',cardDateInput:'dateText'};
  Object.entries(inputMap).forEach(([id,key])=>$(id)?.addEventListener('input',e=>{
   CARD_STATE?.setIdentity(key,e.target.value);
   if(key==='brand'){CARD_STATE?.setIdentity('logoText',e.target.value);if($('cardLogoInput'))$('cardLogoInput').value=e.target.value;}
   if(key==='title'&&CARD_NUMBERING)state().identity.cardNumber=e.target.value?CARD_NUMBERING.number(e.target.value,1):'';
+  refreshAutoTemplateLabel();
  }));
  $('identityContinue').addEventListener('click',()=>{
   const s=state();const title=s.identity.title||s.detected.title||'Title not set';
   completeBuilderStep('identity',[title,s.identity.context,s.identity.brand,s.identity.series,s.identity.dateText].filter(Boolean).join(' · '),null);
  });
+ syncTemplateControls();
  updateBuilderSummary();
 }
 function applyReaderSuggestions(data={}){
@@ -478,7 +588,9 @@ async function readUploadedImage(blob,{review=false}={}){
  const transport=await prepareTransportImage(blob,{max:1200,maxBytes:2_800_000});
  const form=new FormData();
  form.append('image',transport,'reader.jpg');
- if(review)form.append('purpose','review');
+ form.append('purpose',review?'review':'full-read');
+ form.append('detail','full');
+ form.append('instructions',FULL_READ_INSTRUCTIONS);
  const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},review?22000:45000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
@@ -506,21 +618,33 @@ function normalizeVisionPayload(raw={}){
   ...asTextArray(all.visibleText),
   ...asTextArray(all.ocr),
   ...asTextArray(all.text),
-  ...asTextArray(all.detectedText)
+  ...asTextArray(all.detectedText),
+  ...asTextArray(all.allText),
+  ...asTextArray(all.logos),
+  ...asTextArray(all.numbers),
+  ...asTextArray(all.captions)
  ].filter(Boolean);
 
  const titleOptions=[
   ...asTextArray(all.titleOptions),
   ...asTextArray(all.titles),
   ...asTextArray(all.title),
-  ...visibleText.filter(t=>t.length<=80)
+  ...asTextArray(all.playerName),
+  ...asTextArray(all.characterName),
+  ...asTextArray(all.name),
+  ...visibleText.filter(t=>t.length<=40)
  ].filter(Boolean);
 
  const brandOptions=[
   ...asTextArray(all.brandOptions),
   ...asTextArray(all.brands),
+  ...asTextArray(all.franchise),
+  ...asTextArray(all.studio),
+  ...asTextArray(all.network),
   ...asTextArray(all.brand),
-  ...asTextArray(all.logoText)
+  ...asTextArray(all.logoText),
+  ...asTextArray(all.logos),
+  ...asTextArray(all.cardMaker)
  ].filter(Boolean);
 
  const contextOptions=[
@@ -529,7 +653,11 @@ function normalizeVisionPayload(raw={}){
   ...asTextArray(all.movieOptions),
   ...asTextArray(all.context),
   ...asTextArray(all.team),
-  ...asTextArray(all.movie)
+  ...asTextArray(all.movie),
+  ...asTextArray(all.movieTitle),
+  ...asTextArray(all.showTitle),
+  ...asTextArray(all.show),
+  ...asTextArray(all.league)
  ].filter(Boolean);
 
  return {
@@ -539,6 +667,9 @@ function normalizeVisionPayload(raw={}){
   brandOptions:[...new Set(brandOptions)],
   contextOptions:[...new Set(contextOptions)],
   subjectType:String(all.subjectType||all.subject||all.category||'').trim(),
+  category:String(all.category||'').trim().toLowerCase(),
+  cardMaker:String(all.cardMaker||all.manufacturer||'').trim(),
+  cardYear:String(all.cardYear||'').trim(),
   keywords:[...new Set([
    ...asTextArray(all.keywords),
    ...asTextArray(all.labels),
@@ -617,37 +748,68 @@ async function fetchImageSearchComparison(data={},blob=null){
  if(!blob)return null;
  const visible=asTextArray(data.visibleText).slice(0,8);
  const hint=String($('message')?.value||'').trim();
+ const identityTerms=[
+  firstText(data.brandOptions),
+  firstText(data.contextOptions),
+  firstText(data.titleOptions),
+  data.cardYear,data.cardMaker
+ ].map(v=>String(v||'').trim()).filter(Boolean);
  const fallbackTerms=[
   ...asTextArray(data.titleOptions).slice(0,2),
   ...asTextArray(data.keywords).slice(0,5),
   ...asTextArray(data.mediaClues).slice(0,3)
  ].filter(Boolean);
- const query=[hint,visible.join(' ')||fallbackTerms.join(' ')].filter(Boolean).join(' ').trim().slice(0,220);
- if(!query)return null;
+ const category=TEMPLATE_DB?.detectCategory({...data,text:hint})||'';
+ const kindWord=category==='movie'?'movie':category==='tv'?'tv show':category==='sports'?'card':'';
+ // Several independent queries (exact OCR, identity fields, visual keywords)
+ // give the Cloudflare SearXNG worker more chances to return a true match.
+ const queries=[...new Set([
+  [hint,visible.join(' ')].filter(Boolean).join(' '),
+  [...new Set(identityTerms)].join(' ')+(identityTerms.length&&kindWord?' '+kindWord:''),
+  fallbackTerms.join(' ')
+ ].map(q=>q.trim().slice(0,220)).filter(q=>q.length>=3))].slice(0,3);
+ if(!queries.length)return null;
+ async function search(q){
+  try{
+   const u=new URL(WEB_CONTEXT_SEARCH);
+   u.search=new URLSearchParams({q,format:'json',categories:'images',safesearch:'1'});
+   const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'},cache:'no-store'},12000);
+   if(!res.ok)return [];
+   const json=await res.json().catch(()=>({}));
+   return (Array.isArray(json.results)?json.results:[]).map(x=>({
+    query:q,
+    title:String(x.title||'').slice(0,240),
+    snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,700),
+    url:String(x.url||'').slice(0,1000),
+    image:String(x.img_src||x.thumbnail_src||x.thumbnail||'').slice(0,2400)
+   })).filter(x=>x.image);
+  }catch{return []}
+ }
  try{
-  const u=new URL(WEB_CONTEXT_SEARCH);
-  u.search=new URLSearchParams({q:query,format:'json',categories:'images',safesearch:'1'});
-  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'},cache:'no-store'},12000);
-  if(!res.ok)return null;
-  const json=await res.json().catch(()=>({}));
-  const candidates=(Array.isArray(json.results)?json.results:[]).map((x,index)=>({
-   index,
-   title:String(x.title||'').slice(0,240),
-   snippet:String(x.content||x.description||'').replace(/\s+/g,' ').slice(0,700),
-   url:String(x.url||'').slice(0,1000),
-   image:String(x.img_src||x.thumbnail_src||x.thumbnail||'').slice(0,2400)
-  })).filter(x=>x.image).slice(0,6);
+  const batches=await Promise.all(queries.map(search));
+  // Interleave results so each query contributes its best images.
+  const seen=new Set(),candidates=[];
+  for(let i=0;candidates.length<10&&batches.some(b=>i<b.length);i++){
+   for(const b of batches){
+    const x=b[i];if(!x)continue;
+    const key=x.image.split('?')[0];
+    if(seen.has(key))continue;
+    seen.add(key);candidates.push({...x,index:candidates.length});
+    if(candidates.length>=10)break;
+   }
+  }
   if(!candidates.length)return null;
 
-  $('status').textContent='SearXNG found '+candidates.length+' image results. Comparing the actual images…';
+  $('status').textContent='Image search found '+candidates.length+' results. Comparing the actual images…';
   const transport=await prepareTransportImage(blob,{max:1000,maxBytes:2_500_000});
   const form=new FormData();
   form.append('image',transport,'source.jpg');
   form.append('candidates',JSON.stringify(candidates));
-  const compare=await fetchWithTimeout(SERVICE+'/v1/image-compare',{method:'POST',body:form},40000);
+  form.append('instructions','Compare the uploaded image with every candidate image. Use printed text, logos, layout, card design, scene and objects as evidence. Report title, context (team / movie / show), brand (studio, franchise, network or card maker), series, date, category and confidence.');
+  const compare=await fetchWithTimeout(SERVICE+'/v1/image-compare',{method:'POST',body:form},45000);
   const out=await compare.json().catch(()=>({}));
   if(!compare.ok||!out.ok)return null;
-  return {...out,query};
+  return {...out,query:queries[0],queries,candidateCount:candidates.length};
  }catch{return null}
 }
 
@@ -685,17 +847,29 @@ ${JSON.stringify(webContext)}
 SEARXNG IMAGE-SEARCH COMPARISON (the uploaded image was visually compared with returned search images using non-biometric evidence):
 ${JSON.stringify(imageComparison||{})}
 
+Read EVERY part of the reader payload (all visible text, logos, numbers, captions, credits, objects, era and media clues) before answering.
+
 Return ONLY JSON:
 {
+ "category":"sports|movie|tv|other",
  "title":"",
  "context":"",
  "brand":"",
  "series":"",
  "date":"",
+ "cardMaker":"",
+ "cardYear":"",
  "subjectType":"",
  "keywords":[],
  "confidence":{"title":0,"context":0,"brand":0,"series":0,"date":0}
 }
+
+Card structure (the card prints these exact fields):
+- title = the name plate in the lower-right corner: player / athlete name for sports, character or actor name for movies and TV, otherwise the subject title.
+- brand = the brand spot: for MOVIES the studio or franchise (e.g. MGM, Warner Bros., Batman, Star Wars, Marvel); for TV the network or franchise (e.g. HBO, Star Trek); for SPORTS the card maker, league or team logo text actually shown (e.g. Topps, Upper Deck, Yankees).
+- context = team / league for sports, the movie title for movies, the show title for TV.
+- cardMaker / cardYear = only when the image itself is a trading card with a visible maker mark or year (Topps, Upper Deck, Donruss, Fleer, Bowman, Panini, Score, SkyBox).
+- Keep every field SHORT: title max 4 words, brand max 3 words, context max 5 words, series max 4 words, date = a year or short era. No labels, no sentences, no quotes.
 
 Rules:
 - If the evidence is uncertain, keep the factual field blank rather than inventing it.
@@ -748,17 +922,25 @@ Rules:
   }catch{}
  }
 
- const title=String(parsed.title||'').trim();
- const brand=String(parsed.brand||'').trim();
- const context=String(parsed.context||'').trim();
- const series=String(parsed.series||'').trim();
- const date=String(parsed.date||'').trim();
+ const clean=(v,n)=>TEMPLATE_DB?TEMPLATE_DB.cleanField(v,n):String(v||'').trim();
+ const title=clean(parsed.title,5);
+ const brand=clean(parsed.brand,4);
+ const context=clean(parsed.context,6);
+ const series=clean(parsed.series,5);
+ const date=clean(parsed.date,3);
+ const cardMaker=clean(parsed.cardMaker||data.cardMaker,3);
+ const cardYear=clean(parsed.cardYear||data.cardYear,1);
+ const categoryRaw=String(parsed.category||data.category||'').trim().toLowerCase();
+ const category=TEMPLATE_DB?TEMPLATE_DB.detectCategory({...data,category:categoryRaw,text:[title,brand,context].join(' ')}):categoryRaw;
  const subjectType=String(parsed.subjectType||data.subjectType||'').trim();
  const keywords=[...new Set([...(Array.isArray(parsed.keywords)?parsed.keywords:[]),...(Array.isArray(data.keywords)?data.keywords:[])].map(v=>String(v||'').trim()).filter(Boolean))];
 
  return {
   ...data,
   subjectType,
+  category,
+  cardMaker,
+  cardYear,
   keywords,
   titleOptions:title?[title]:asTextArray(data.titleOptions),
   brandOptions:brand?[brand]:asTextArray(data.brandOptions),
@@ -772,16 +954,21 @@ Rules:
 }
 function applyVisionResult(data,{overwrite=false}={}){
  if(!data)return;
- const title=firstText(data.titleOptions)||'';
- const brand=firstText(data.brandOptions)||'';
+ // Prefilled fields stay short: strip labels, symbols and excess words.
+ const clean=(v,n)=>TEMPLATE_DB?TEMPLATE_DB.cleanField(v,n):String(v||'').trim();
+ const title=clean(firstText(data.titleOptions),5);
+ const brand=clean(firstText(data.brandOptions),4);
  const logo=brand;
- const context=firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions)||'';
+ const context=clean(firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions),6);
  const subjectType=String(data.subjectType||'').trim();
- const series=firstText(data.seriesOptions)||'';
- const date=firstText(data.dateOptions);
+ const series=clean(firstText(data.seriesOptions),5);
+ const date=clean(firstText(data.dateOptions),3);
  const detected={
   title,
   subjectType,
+  category:String(data.category||'').trim().toLowerCase(),
+  cardMaker:String(data.cardMaker||'').trim(),
+  cardYear:String(data.cardYear||'').trim(),
   brand,
   logo,
   context,
@@ -826,6 +1013,7 @@ function applyVisionResult(data,{overwrite=false}={}){
   visibleText:data.visibleText||[],
   keywords:data.keywords||[]
  });
+ refreshAutoTemplateLabel();
 }
 
 function normalizedName(value){
@@ -981,14 +1169,15 @@ function openPicker(){ $('photo').click(); }
 
 function resetImageDataForNewSource(){
  const s=state();
- if(s.detected)s.detected={title:'',subjectType:'',brand:'',logo:'',context:'',era:'',date:'',keywords:[]};
+ if(s.detected)s.detected={title:'',subjectType:'',brand:'',logo:'',context:'',era:'',date:'',keywords:[],category:'',cardMaker:'',cardYear:''};
  if(s.identity){
   for(const key of ['title','brand','logoText','context','series','dateText','cardNumber'])s.identity[key]='';
  }
  for(const id of ['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput']){
   if($(id))$(id).value='';
  }
- lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];lastImageComparison=null;
+ lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];lastImageComparison=null;lastTemplateRefs=[];
+ refreshAutoTemplateLabel();
 }
 
 function setCreateAvailability(ready,label='Create Card'){
@@ -1223,6 +1412,8 @@ const CARD_STYLE_LIBRARY={
 function styleKnowledge(description){
  const t=String(description||'').toLowerCase();
  const hits=Object.entries(CARD_STYLE_LIBRARY).filter(([k])=>t.includes(k)).map(([k,v])=>k.toUpperCase()+": "+v);
+ const tpl=activeTemplate();
+ if(tpl)hits.unshift('TEMPLATE DATABASE MATCH: '+TEMPLATE_DB.promptFor(tpl));
  return hits.length?hits.join("\n"):"No named card family detected; follow the user's visual words literally.";
 }
 
@@ -1535,6 +1726,25 @@ function showBack(){
 }
 
 
+function frontLayoutFor(W,H){
+ const tpl=activeTemplate();
+ if(TEMPLATE_DB)return {tpl,layout:TEMPLATE_DB.frontLayout(W,H,tpl)};
+ const pad=Math.max(18,Math.round(W*.045));
+ const plateW=Math.round(W*.74),plateH=Math.max(70,Math.round(H*.11));
+ const serialW=Math.max(60,Math.round(W*.2)),serialH=Math.round(serialW*.52);
+ const nameplate={x:W-pad-plateW,y:H-pad-plateH,w:plateW,h:plateH,align:'right',style:'bar'};
+ return {tpl,layout:{pad,brand:{x:pad,y:pad,w:Math.round(W*.42),h:Math.max(30,Math.round(H*.05)),align:'left'},nameplate,serial:{x:W-pad-serialW,y:nameplate.y-Math.round(pad*.45)-serialH,w:serialW,h:serialH}}};
+}
+function pathRoundRect(ctx,x,y,w,h,r){
+ r=Math.max(0,Math.min(r,w/2,h/2));
+ ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function outlinedText(ctx,text,x,y,maxW,fill,stroke,lineWidth){
+ ctx.lineJoin='round';ctx.miterLimit=2;
+ ctx.lineWidth=lineWidth;ctx.strokeStyle=stroke;ctx.strokeText(text,x,y,maxW);
+ ctx.fillStyle=fill;ctx.fillText(text,x,y,maxW);
+}
+
 async function stampFrontIdentity(dataURI){
  const s=state();
  const title=String(s.identity.title||s.detected.title||'').trim();
@@ -1549,77 +1759,98 @@ async function stampFrontIdentity(dataURI){
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
  const W=canvas.width,H=canvas.height;
- const pad=Math.max(22,Math.round(W*.045));
- const footerH=Math.max(118,Math.round(H*.145));
+ const {tpl,layout:L}=frontLayoutFor(W,H);
+ const accent=tpl?.palette?.[2]||'#c9a227';
+ const team=tpl?.palette?.[1]||'#1d2731';
+ const font=(weight,size)=>weight+' '+size+'px "Arial Narrow",Arial,Helvetica,sans-serif';
+ function fitFont(text,maxWidth,start,min=12,weight=900){
+  let size=start;
+  do{ctx.font=font(weight,size);if(ctx.measureText(text).width<=maxWidth)break;size-=2}while(size>min);
+  return size;
+ }
 
  // Production typography is composited after AI artwork so names stay exact,
  // readable and never become pseudo-text from the image model.
- const g=ctx.createLinearGradient(0,H-footerH*1.55,0,H);
- g.addColorStop(0,'rgba(0,0,0,0)');
- g.addColorStop(.48,'rgba(0,0,0,.34)');
- g.addColorStop(1,'rgba(0,0,0,.84)');
- ctx.fillStyle=g;ctx.fillRect(0,H-footerH*1.55,W,footerH*1.55);
+ const fadeTop=L.serial.y-L.pad;
+ const g=ctx.createLinearGradient(0,fadeTop,0,H);
+ g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.55)');
+ ctx.fillStyle=g;ctx.fillRect(0,fadeTop,W,H-fadeTop);
 
- function fitFont(text,maxWidth,start,min=20,weight=900){
-  let size=start;
-  do{ctx.font=weight+' '+size+'px Arial,Helvetica,sans-serif';if(ctx.measureText(text).width<=maxWidth)break;size-=2}while(size>min);
-  return size;
+ // Brand spot (studio / franchise / maker), e.g. MGM, Batman, Topps.
+ if(brand&&s.selections.useBrand!==false&&normalizedName(brand)!==normalizedName(title)){
+  const text=brand.toUpperCase();
+  const padX=Math.round(L.brand.h*.4);
+  const fs=fitFont(text,L.brand.w-padX*2,Math.round(L.brand.h*.62),12,900);
+  ctx.font=font(900,fs);
+  const bw=Math.min(L.brand.w,Math.ceil(ctx.measureText(text).width)+padX*2);
+  const bx=L.brand.align==='right'?L.brand.x+L.brand.w-bw:L.brand.x;
+  pathRoundRect(ctx,bx,L.brand.y,bw,L.brand.h,L.brand.h*.22);
+  ctx.fillStyle='rgba(8,10,14,.86)';ctx.fill();
+  ctx.lineWidth=Math.max(3,Math.round(W*.006));ctx.strokeStyle='#000';ctx.stroke();
+  ctx.lineWidth=Math.max(1.5,Math.round(W*.003));ctx.strokeStyle=accent;ctx.stroke();
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  outlinedText(ctx,text,bx+bw/2,L.brand.y+L.brand.h/2+1,bw-padX*2,'#fff','#000',Math.max(2,fs*.12));
  }
- ctx.textAlign='left';ctx.textBaseline='alphabetic';
- ctx.shadowColor='rgba(0,0,0,.78)';ctx.shadowBlur=Math.max(3,Math.round(W*.008));ctx.shadowOffsetY=2;
 
- let y=H-Math.max(34,Math.round(H*.035));
- const meta=[series,date].filter(Boolean).join(' · ');
- if(meta){
-  const fs=fitFont(meta,W-pad*2,Math.max(16,Math.round(W*.027)),12,800);
-  ctx.font='800 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.92)';
-  ctx.fillText(meta,pad,y,W-pad*2);y-=Math.round(fs*1.55);
+ // Name plate, lower-right corner: title/name with a short context line.
+ const sub=[context,series,date].filter(Boolean).filter((v,i,a)=>a.findIndex(x=>normalizedName(x)===normalizedName(v))===i).join(' · ');
+ const nameText=(s.selections.showName!==false?title:'').toUpperCase();
+ const subText=s.selections.showContext!==false?sub:[series,date].filter(Boolean).join(' · ');
+ if(nameText||subText){
+  const P=L.nameplate,padX=Math.round(P.h*.22);
+  const nameFs=nameText?fitFont(nameText,P.w-padX*2,Math.round(P.h*.42),16,900):0;
+  const subFs=subText?fitFont(subText,P.w-padX*2,Math.round(P.h*.2),11,800):0;
+  ctx.font=font(900,nameFs||1);const nw=nameText?ctx.measureText(nameText).width:0;
+  ctx.font=font(800,subFs||1);const sw=subText?ctx.measureText(subText).width:0;
+  const pw=Math.min(P.w,Math.ceil(Math.max(nw,sw))+padX*2+Math.round(P.h*.12));
+  const ph=Math.min(P.h,Math.round((nameFs?nameFs*1.12:0)+(subFs?subFs*1.5:0)+P.h*.2));
+  const px=P.x+P.w-pw,py=P.y+P.h-ph;
+  pathRoundRect(ctx,px,py,pw,ph,P.style==='tab'?ph*.3:Math.round(P.h*.08));
+  ctx.fillStyle=P.style==='fade'?'rgba(8,10,14,.72)':'rgba(8,10,14,.88)';ctx.fill();
+  ctx.lineWidth=Math.max(3,Math.round(W*.006));ctx.strokeStyle='#000';ctx.stroke();
+  ctx.lineWidth=Math.max(1.5,Math.round(W*.003));ctx.strokeStyle=accent;ctx.stroke();
+  ctx.fillStyle=team;ctx.fillRect(px+2,py+Math.round(ph*.18),Math.max(4,Math.round(P.h*.06)),Math.round(ph*.64));
+  ctx.textAlign='right';ctx.textBaseline='alphabetic';
+  const tx=px+pw-padX;let ty=py+Math.round(P.h*.1);
+  if(nameText){
+   ty+=Math.round(nameFs*.92);ctx.font=font(900,nameFs);
+   outlinedText(ctx,nameText,tx,ty,pw-padX*2,'#fff','#000',Math.max(2,nameFs*.1));
+  }
+  if(subText){
+   ty+=Math.round(subFs*1.35);ctx.font=font(800,subFs);
+   outlinedText(ctx,subText,tx,ty,pw-padX*2,'rgba(255,255,255,.95)','#000',Math.max(2,subFs*.14));
+  }
  }
- if(context){
-  const fs=fitFont(context,W-pad*2,Math.max(18,Math.round(W*.032)),14,800);
-  ctx.font='800 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.95)';
-  ctx.fillText(context,pad,y,W-pad*2);y-=Math.round(fs*1.45);
- }
- if(title){
-  const fs=fitFont(title,W-pad*2,Math.max(34,Math.round(W*.065)),22,900);
-  ctx.font='900 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='#fff';
-  ctx.fillText(title,pad,y,W-pad*2);
- }
- if(brand&&normalizedName(brand)!==normalizedName(title)){
-  const fs=fitFont(brand,W-pad*2,Math.max(15,Math.round(W*.024)),12,900);
-  ctx.font='900 '+fs+'px Arial,Helvetica,sans-serif';ctx.fillStyle='rgba(255,255,255,.90)';
-  ctx.textAlign='right';ctx.fillText(brand,W-pad,Math.max(28,Math.round(H*.045)),W-pad*2);
- }
- ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
  return canvas.toDataURL('image/jpeg',.97);
 }
 
+// Strong Topps-style 1/1: gold foil numbering on a dark plate, lower right.
 async function stampCollectorMarks(dataURI){
  const s=state();
  if(!s.selections.oneOfOne)return dataURI;
  const img=new Image();img.src=dataURI;
  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('collector_mark_load_failed'))});
-
- const mark=new Image();
- mark.src='./public/assets/one-of-one-gold.svg?v=20261005-1';
- await new Promise((resolve,reject)=>{mark.onload=resolve;mark.onerror=()=>reject(new Error('collector_asset_load_failed'))});
-
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
-
- const footer=Math.max(34,Math.round(canvas.height*.044));
- const targetW=Math.max(34,Math.round(canvas.width*.055));
- const targetH=Math.round(targetW*(72/180));
- const insetX=Math.max(16,Math.round(canvas.width*.026));
- const insetY=Math.max(10,Math.round(canvas.height*.018));
- const x=canvas.width-insetX-targetW;
- const y=canvas.height-footer-insetY-targetH;
+ const {layout:L}=frontLayoutFor(canvas.width,canvas.height);
+ const {x,y,w,h}=L.serial;
 
  ctx.save();
- ctx.globalAlpha=.96;
- ctx.drawImage(mark,x,y,targetW,targetH);
- ctx.restore();
+ pathRoundRect(ctx,x,y,w,h,h*.2);
+ ctx.fillStyle='rgba(6,6,8,.86)';ctx.fill();
+ ctx.lineWidth=Math.max(3,Math.round(w*.035));ctx.strokeStyle='#000';ctx.stroke();
+ const rim=ctx.createLinearGradient(x,y,x+w,y+h);
+ rim.addColorStop(0,'#7d5a10');rim.addColorStop(.3,'#f9edb0');rim.addColorStop(.55,'#c89527');rim.addColorStop(.8,'#fff4bd');rim.addColorStop(1,'#a67616');
+ ctx.lineWidth=Math.max(2,Math.round(w*.02));ctx.strokeStyle=rim;ctx.stroke();
 
+ const fs=Math.round(h*.74);
+ ctx.font='italic 900 '+fs+'px "Arial Narrow",Arial,Helvetica,sans-serif';
+ ctx.textAlign='center';ctx.textBaseline='middle';
+ const foil=ctx.createLinearGradient(x,y+h*.15,x+w,y+h*.85);
+ foil.addColorStop(0,'#8a6212');foil.addColorStop(.2,'#fff3b8');foil.addColorStop(.42,'#d19d2a');foil.addColorStop(.62,'#fff6c8');foil.addColorStop(.82,'#b07d18');foil.addColorStop(1,'#f4dc94');
+ ctx.shadowColor='rgba(0,0,0,.6)';ctx.shadowBlur=Math.round(fs*.08);ctx.shadowOffsetY=Math.round(fs*.03);
+ outlinedText(ctx,'1/1',x+w/2,y+h/2+fs*.04,w*.9,foil,'#2a1a00',Math.max(2,fs*.1));
+ ctx.restore();
  return canvas.toDataURL('image/jpeg',.97);
 }
 
@@ -1785,6 +2016,7 @@ async function createCard(count=1,mode='original'){
   lastBlob=sourceFile;
   lastReferenceBlob=mode==='reference'?referenceFile:null;
   buildMode=mode;
+  lastTemplateRefs=await fetchTemplateReferences(activeTemplate());
   lastDescription=builderDescription(freeform)||'Build collectible card';
   stage('prepare','done');
   await nextPaint();
@@ -1973,6 +2205,6 @@ $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
  autoMode=false;autoBacks.clear();autoTitles.clear();lastAutoSpec=null;
- results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';syncTemplateControls();['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
