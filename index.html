@@ -166,7 +166,18 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     </div>
 
     <div class="builderControls" id="builderControls">
-     <div class="controlBlock current" data-builder-step="border">
+     <div class="controlBlock current" data-builder-step="style">
+      <div class="controlTitle">Style first</div>
+      <button class="controlSummary" type="button"></button>
+      <div class="choiceRow" data-choice-group="style">
+       <button class="choiceBtn" type="button" data-value="topps">Topps</button>
+       <button class="choiceBtn" type="button" data-value="donruss">Donruss</button>
+       <button class="choiceBtn" type="button" data-value="fleer">Fleer</button>
+       <button class="choiceBtn active" type="button" data-value="flagship">Flagship</button>
+       <button class="choiceBtn" type="button" data-value="upperdeck">Upper Deck</button>
+      </div>
+     </div>
+     <div class="controlBlock" data-builder-step="border">
       <div class="controlTitle">Card border</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="border">
@@ -175,16 +186,6 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button class="choiceBtn" type="button" data-value="chrome">Chrome</button>
        <button class="choiceBtn" type="button" data-value="hologram">Hologram</button>
        <button class="choiceBtn" type="button" data-value="insert">Insert Series</button>
-      </div>
-     </div>
-     <div class="controlBlock" data-builder-step="style">
-      <div class="controlTitle">Style</div>
-      <button class="controlSummary" type="button"></button>
-      <div class="choiceRow" data-choice-group="style">
-       <button class="choiceBtn active" type="button" data-value="flagship">Flagship</button>
-       <button class="choiceBtn" type="button" data-value="vintage">Vintage</button>
-       <button class="choiceBtn" type="button" data-value="contemporary">Contemporary</button>
-       <button class="choiceBtn" type="button" data-value="abstract">Abstract</button>
       </div>
      </div>
      <div class="controlBlock" data-builder-step="finish">
@@ -213,16 +214,18 @@ textarea::placeholder{color:#7e8894;opacity:.82}
       <div class="controlTitle">Identity</div>
       <button class="controlSummary" type="button"></button>
       <div class="identityActions">
-       <button id="editTitleBtn" class="choiceBtn" type="button">Title</button>
+       <button id="showNameToggle" class="choiceBtn active" type="button">Name On</button>
+       <button id="showContextToggle" class="choiceBtn active" type="button">Team / Movie On</button>
        <button id="editBrandBtn" class="choiceBtn" type="button">Brand / Logo</button>
-       <button id="editSeriesBtn" class="choiceBtn" type="button">Series / Date</button>
+       <button id="editSeriesBtn" class="choiceBtn" type="button">More details</button>
       </div>
-      <div id="customFields" class="inlineFields">
-       <label>Title<input id="cardTitleInput" type="text" placeholder="Detected title or custom title"></label>
-       <label>Brand<input id="cardBrandInput" type="text" placeholder="Your brand"></label>
-       <label>Logo text<input id="cardLogoInput" type="text" placeholder="Brand logo text"></label>
-       <label>Series<input id="cardSeriesInput" type="text" placeholder="Insert series"></label>
+      <div id="customFields" class="inlineFields open">
+       <label class="wide">Player / actor / subject name — check this<input id="cardTitleInput" type="text" placeholder="AI reads the uploaded image; edit if needed"></label>
+       <label class="wide">Team / movie / context — check this<input id="cardContextInput" type="text" placeholder="Prefilled only when supported by the image read"></label>
+       <label>Brand / logo<input id="cardBrandInput" type="text" placeholder="Brand shown as the logo"></label>
+       <label>Series<input id="cardSeriesInput" type="text" placeholder="Optional series"></label>
        <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="1973 or 1989"></label>
+       <input id="cardLogoInput" type="hidden">
       </div>
       <div id="readerIdeas" class="readerIdeas" aria-label="Image reader suggestions"></div>
       <button id="identityContinue" class="stepContinue" type="button">Done</button>
@@ -284,13 +287,13 @@ textarea::placeholder{color:#7e8894;opacity:.82}
   </section>
  </main>
 </div>
-<script src="./public/card-state.js?v=20261005-1"></script>
+<script src="./public/card-state.js?v=20261005-2"></script>
 <script src="./public/card-numbering.js?v=20261005-1"></script>
-<script src="./public/card-templates.js?v=20261005-2"></script>
+<script src="./public/card-templates.js?v=20261005-3"></script>
 <script src="./public/card-back.js?v=20261005-1"></script>
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261005-3"></script>
 <script src="./public/ability-router.js?v=20261005-1"></script>
-<script src="./public/app.js?v=20261005-12"></script>
+<script src="./public/app.js?v=20261005-13"></script>
 </body>
 </html>
