@@ -478,7 +478,7 @@ async function completeVisionIdentity(data={}){
  const localBrand=firstText(data.brandOptions)||'';
  const localContext=firstText(data.teamOptions)||firstText(data.movieOptions)||firstText(data.contextOptions)||'';
  const fallback=()=>{
-  const title=localTitle||firstText(visible)||'';
+  const title=localTitle||firstText(visible)||'Image Subject';
   return {
    ...data,
    titleOptions:title?[title,...(data.titleOptions||[]).filter(x=>String(x).trim()!==title)]:[],
@@ -546,7 +546,7 @@ Field rules:
 
 function applyVisionResult(data){
  if(!data)return;
- const title=firstText(data.titleOptions)||titleCase(data.subjectType)||'';
+ const title=firstText(data.titleOptions)||titleCase(data.subjectType)||'Image Subject';
  const brand=firstText(data.brandOptions)||'';
  const logo=brand;
  const context=firstText(data.contextOptions)||firstText(data.teamOptions)||firstText(data.movieOptions)||'';
@@ -824,7 +824,8 @@ async function setPhoto(file){
    }).catch(()=>{});
   }catch{
    if(generation!==photoReadGeneration||sourceFile!==file)return;
-   $('status').textContent='Photo loaded. Image reading was unavailable; you can fill anything missing and create.';
+   applyVisionResult({subjectType:'image subject',titleOptions:['Image Subject'],seriesOptions:['Collector Card'],keywords:[]});
+   $('status').textContent='Photo loaded. The image reader was unavailable, so generic card data was inserted instead of leaving blank fields.';
   }finally{
    if(generation===photoReadGeneration&&sourceFile===file){
     imageReadState='ready';
@@ -1428,7 +1429,8 @@ async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
  const r=await fetchWithTimeout(SERVICE+'/v1/image',{method:'POST',body:form},150000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
-  const detail=String(d.error||d.detail||'workers_ai_image_failed');
+  const attempts=Array.isArray(d.attemptErrors)?d.attemptErrors.map(x=>String(x?.model||'model')+': '+String(x?.error||'error')).join(' | '):'';
+  const detail=[String(d.error||d.detail||'workers_ai_image_failed'),attempts].filter(Boolean).join(' · ');
   const e=new Error('Workers AI /v1/image '+r.status+': '+detail);
   e.code=String(d.error||'workers_ai_image_failed');e.status=r.status;e.route='/v1/image';throw e
  }
