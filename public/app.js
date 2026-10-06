@@ -34,6 +34,8 @@ let lastIntel=null;
 let lastIntent=null;
 let backResult='';
 let currentSide='front';
+let selectedImageFiles=[];
+let selectedImageIndex=-1;
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -412,6 +414,29 @@ async function prepareUploadedImage(file){
  catch{return {blob:file,cropped:false,box:null}}
 }
 
+
+function clearImageTray(){
+ const tray=$('imageTray');if(!tray)return;
+ tray.querySelectorAll('img').forEach(img=>{const u=img.dataset.objectUrl;if(u)URL.revokeObjectURL(u)});
+ tray.innerHTML='';tray.classList.remove('visible');
+ selectedImageFiles=[];selectedImageIndex=-1;
+}
+function renderImageTray(files){
+ const tray=$('imageTray');if(!tray)return;
+ tray.innerHTML='';selectedImageFiles=[...files];selectedImageIndex=-1;
+ selectedImageFiles.forEach((file,index)=>{
+  const b=document.createElement('button');b.type='button';b.className='imageChoice';b.setAttribute('aria-label','Use image '+(index+1));
+  const img=document.createElement('img');const url=URL.createObjectURL(file);img.src=url;img.dataset.objectUrl=url;img.alt='';
+  b.appendChild(img);
+  b.addEventListener('click',async()=>{
+   selectedImageIndex=index;
+   tray.querySelectorAll('.imageChoice').forEach((x,i)=>x.classList.toggle('active',i===index));
+   await setPhoto(file);
+  });
+  tray.appendChild(b);
+ });
+ tray.classList.toggle('visible',selectedImageFiles.length>1);
+}
 function openPicker(){ $('photo').click(); }
 async function setPhoto(file){
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
@@ -433,11 +458,18 @@ async function setPhoto(file){
   ? ((vision.titleOptions||[])[0]?'Image read: '+(vision.titleOptions||[])[0]+'. Choose the card look.':'Image read. Choose the card look.')
   : (prepared.cropped?'Main image cropped automatically. Choose the card look.':'Photo ready. Choose the card look.');
 }
-$('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
+$('photo').addEventListener('change',async e=>{
+ const files=[...(e.target.files||[])].filter(f=>f.type.startsWith('image/'));
+ if(!files.length){await setPhoto(null);return}
+ renderImageTray(files);
+ selectedImageIndex=0;
+ $('imageTray')?.querySelector('.imageChoice')?.classList.add('active');
+ await setPhoto(files[0]);
+});
 $('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))openPicker()});
 $('thumbBox').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openPicker()}});
 $('replacePhoto').addEventListener('click',e=>{e.stopPropagation();openPicker()});
-$('removePhoto').addEventListener('click',e=>{e.stopPropagation();setPhoto(null)});
+$('removePhoto').addEventListener('click',e=>{e.stopPropagation();clearImageTray();setPhoto(null)});
 ['dragenter','dragover'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#9fb7ca'}));
 ['dragleave','drop'].forEach(type=>$('composer').addEventListener(type,e=>{e.preventDefault();$('composer').style.borderColor='#cdd7e1'}));
 $('composer').addEventListener('drop',e=>{const f=[...(e.dataTransfer?.files||[])].find(x=>x.type.startsWith('image/'));if(f)setPhoto(f)});
@@ -928,7 +960,40 @@ async function stampProductLine(dataURI){
  return canvas.toDataURL('image/jpeg',.95);
 }
 
+
+async function renderExactWhiteFlagship(sourceBlob){
+ const img=new Image();img.src=URL.createObjectURL(sourceBlob);
+ await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('source_image_load_failed'))});
+ const canvas=document.createElement('canvas');canvas.width=768;canvas.height=1024;
+ const ctx=canvas.getContext('2d',{alpha:false});
+ ctx.fillStyle='#ffffff';ctx.fillRect(0,0,768,1024);
+
+ // clean flagship white border
+ ctx.fillStyle='#ffffff';ctx.fillRect(28,28,712,968);
+ ctx.strokeStyle='#d8dde2';ctx.lineWidth=3;ctx.strokeRect(42,42,684,940);
+
+ // photo window
+ const px=66,py=78,pw=636,ph=744;
+ ctx.fillStyle='#f6f7f8';ctx.fillRect(px,py,pw,ph);
+ const scale=Math.max(pw/img.naturalWidth,ph/img.naturalHeight);
+ const sw=pw/scale,sh=ph/scale;
+ const sx=Math.max(0,(img.naturalWidth-sw)/2),sy=Math.max(0,(img.naturalHeight-sh)/2);
+ ctx.drawImage(img,sx,sy,sw,sh,px,py,pw,ph);
+ URL.revokeObjectURL(img.src);
+
+ // restrained inner rule
+ ctx.strokeStyle='#171b20';ctx.lineWidth=2;ctx.strokeRect(px,py,pw,ph);
+
+ // identity strip left intentionally plain; exact text is added later
+ ctx.fillStyle='rgba(255,255,255,.96)';ctx.fillRect(66,822,636,118);
+ ctx.strokeStyle='#d9dde1';ctx.lineWidth=2;ctx.strokeRect(66,822,636,118);
+
+ return {ok:true,dataURI:canvas.toDataURL('image/jpeg',.97),mode:'exact-source'};
+}
 async function renderCard(blob,prompt,description,designBlob=null){
+ const s=state();
+ const exactFlagship=!designBlob&&s.selections.border==='white'&&s.selections.style==='flagship'&&['paper','matte','gloss'].includes(s.selections.finish);
+ if(exactFlagship)return renderExactWhiteFlagship(blob);
  const form=new FormData();
  form.append('image',blob,'subject.jpg');
  if(designBlob)form.append('design_reference',designBlob,'design-reference.jpg');
@@ -1020,6 +1085,6 @@ $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
- results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';CARD_STATE?.reset();$('message').value='';builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
