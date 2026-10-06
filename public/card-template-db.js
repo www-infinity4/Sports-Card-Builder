@@ -29,7 +29,8 @@ const CATEGORIES={
  other:{id:'other',label:'Other',brandRole:'brand or logo text actually printed in the image',contextRole:'event, product, band, place or other context',titleRole:'subject name'}
 };
 
-// Layout presets. Fractions of card width / height.
+// Layout presets: symbolic positions for the brand spot, name plate and
+// serial, plus the name plate style. Pixel geometry lives in frontLayout().
 const LAYOUTS={
  classic:{brand:'top-left',nameplate:'lower-right',serial:'lower-right',plate:'bar'},
  brandRight:{brand:'top-right',nameplate:'lower-right',serial:'lower-right',plate:'bar'},

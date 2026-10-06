@@ -13,6 +13,7 @@ const CARD_CRITIC=window.OracleCardCritic||null;
 const TEMPLATE_DB=window.OracleTemplateDB||null;
 const TEMPLATE_REF_KEY='oracle-template-refs-v1';
 const TEMPLATE_REF_TTL=7*24*3600*1000;
+const TEMPLATE_REF_MISS_TTL=3600*1000;
 // Route the image reader to read the whole image, not just the main subject.
 const FULL_READ_INSTRUCTIONS=[
  'Read EVERYTHING in this image before answering: every printed word, name, number, jersey number, logo text, watermark, caption, copyright/credit line, card-maker mark, year, team, league, studio, network, franchise and series text, in every corner and on every edge.',
@@ -121,25 +122,31 @@ async function fetchTemplateReferences(tpl){
  if(!tpl||!TEMPLATE_DB)return [];
  const db=readTemplateRefs();
  const hit=db[tpl.id];
- if(hit&&Date.now()-Number(hit.at||0)<TEMPLATE_REF_TTL&&Array.isArray(hit.images))return hit.images;
+ const ttl=hit?.miss?TEMPLATE_REF_MISS_TTL:TEMPLATE_REF_TTL;
+ if(hit&&Date.now()-Number(hit.at||0)<ttl&&Array.isArray(hit.images))return hit.images;
+ const remember=(images,miss)=>{
+  db[tpl.id]={at:Date.now(),query:TEMPLATE_DB.referenceQuery(tpl),images,miss};
+  try{localStorage.setItem(TEMPLATE_REF_KEY,JSON.stringify(db))}catch{}
+ };
  try{
   const query=TEMPLATE_DB.referenceQuery(tpl);
   const u=new URL(WEB_CONTEXT_SEARCH);
   u.search=new URLSearchParams({q:query,format:'json',categories:'images',safesearch:'1'});
-  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},10000);
-  if(!res.ok)return hit?.images||[];
+  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},5000);
+  if(!res.ok){if(!hit?.images?.length)remember([],true);return hit?.images||[];}
   const json=await res.json().catch(()=>({}));
   const images=(Array.isArray(json.results)?json.results:[]).map(x=>({
    title:String(x.title||'').slice(0,160),
    url:String(x.url||'').slice(0,500),
    image:String(x.img_src||x.thumbnail_src||'').slice(0,800)
   })).filter(x=>/^https?:\/\//i.test(x.image)).slice(0,8);
-  if(images.length){
-   db[tpl.id]={at:Date.now(),query,images};
-   try{localStorage.setItem(TEMPLATE_REF_KEY,JSON.stringify(db))}catch{}
-  }
+  if(images.length)remember(images,false);
+  else if(!hit?.images?.length)remember([],true);
   return images.length?images:(hit?.images||[]);
- }catch{return hit?.images||[]}
+ }catch{
+  if(!hit?.images?.length)remember([],true);
+  return hit?.images||[];
+ }
 }
 
 function builderDescription(freeform=''){
@@ -1727,13 +1734,9 @@ function showBack(){
 
 
 function frontLayoutFor(W,H){
+ if(!TEMPLATE_DB)return null;
  const tpl=activeTemplate();
- if(TEMPLATE_DB)return {tpl,layout:TEMPLATE_DB.frontLayout(W,H,tpl)};
- const pad=Math.max(18,Math.round(W*.045));
- const plateW=Math.round(W*.74),plateH=Math.max(70,Math.round(H*.11));
- const serialW=Math.max(60,Math.round(W*.2)),serialH=Math.round(serialW*.52);
- const nameplate={x:W-pad-plateW,y:H-pad-plateH,w:plateW,h:plateH,align:'right',style:'bar'};
- return {tpl,layout:{pad,brand:{x:pad,y:pad,w:Math.round(W*.42),h:Math.max(30,Math.round(H*.05)),align:'left'},nameplate,serial:{x:W-pad-serialW,y:nameplate.y-Math.round(pad*.45)-serialH,w:serialW,h:serialH}}};
+ return {tpl,layout:TEMPLATE_DB.frontLayout(W,H,tpl)};
 }
 function pathRoundRect(ctx,x,y,w,h,r){
  r=Math.max(0,Math.min(r,w/2,h/2));
@@ -1759,7 +1762,9 @@ async function stampFrontIdentity(dataURI){
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
  const W=canvas.width,H=canvas.height;
- const {tpl,layout:L}=frontLayoutFor(W,H);
+ const front=frontLayoutFor(W,H);
+ if(!front)return dataURI;
+ const {tpl,layout:L}=front;
  const accent=tpl?.palette?.[2]||'#c9a227';
  const team=tpl?.palette?.[1]||'#1d2731';
  const font=(weight,size)=>weight+' '+size+'px "Arial Narrow",Arial,Helvetica,sans-serif';
@@ -1832,8 +1837,9 @@ async function stampCollectorMarks(dataURI){
  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('collector_mark_load_failed'))});
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
- const {layout:L}=frontLayoutFor(canvas.width,canvas.height);
- const {x,y,w,h}=L.serial;
+ const front=frontLayoutFor(canvas.width,canvas.height);
+ if(!front)return dataURI;
+ const {x,y,w,h}=front.layout.serial;
 
  ctx.save();
  pathRoundRect(ctx,x,y,w,h,h*.2);
@@ -1848,8 +1854,13 @@ async function stampCollectorMarks(dataURI){
  ctx.textAlign='center';ctx.textBaseline='middle';
  const foil=ctx.createLinearGradient(x,y+h*.15,x+w,y+h*.85);
  foil.addColorStop(0,'#8a6212');foil.addColorStop(.2,'#fff3b8');foil.addColorStop(.42,'#d19d2a');foil.addColorStop(.62,'#fff6c8');foil.addColorStop(.82,'#b07d18');foil.addColorStop(1,'#f4dc94');
+ const tx=x+w/2,ty=y+h/2+fs*.04;
+ // Shadow on the outline only, so the foil fill stays crisp.
+ ctx.lineJoin='round';ctx.lineWidth=Math.max(2,fs*.1);ctx.strokeStyle='#2a1a00';
  ctx.shadowColor='rgba(0,0,0,.6)';ctx.shadowBlur=Math.round(fs*.08);ctx.shadowOffsetY=Math.round(fs*.03);
- outlinedText(ctx,'1/1',x+w/2,y+h/2+fs*.04,w*.9,foil,'#2a1a00',Math.max(2,fs*.1));
+ ctx.strokeText('1/1',tx,ty,w*.9);
+ ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+ ctx.fillStyle=foil;ctx.fillText('1/1',tx,ty,w*.9);
  ctx.restore();
  return canvas.toDataURL('image/jpeg',.97);
 }
