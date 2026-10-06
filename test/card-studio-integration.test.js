@@ -18,11 +18,11 @@ function adapterHarness(){
   imageReadPromise:Promise.resolve(),
   setPhoto:async image=>calls.push(['read',image]),
   setReference:async image=>calls.push(['reference',image]),
-  CARD_EVIDENCE:{FIELDS:['title','context','category'],addUserOverride:(e,f,v)=>({...e,[f]:v})},
+  CARD_EVIDENCE:{FIELDS:['title','context','category'],merge:(a,b)=>({...a,...b}),addUserOverride:(e,f,v)=>({...e,[f]:v})},
   CARD_DATA_STREAM:{SCALARS:['subject','title','cardNumber'],LISTS:['facts']},
   cardEvidence:{},
   CARD_STATE:{reset(){},setIdentity:(f,v)=>identity[f]=v,setSelection:(f,v)=>selections[f]=v},
-  state:()=>({back:context.back}),
+  state:()=>({back:context.back,detected:{}}),
   back:{},
   results:[],
   studioCards:new Map(),
@@ -62,4 +62,45 @@ test('browser adapter refuses invalid images, concurrent UI builds and incomplet
  context.createCard=async()=>{context.results=[]};
  await assert.rejects(adapter.build({image:new Blob()}),/build_incomplete/);
  assert.equal(context.studioRequest,null);
+});
+test('nested caller identity and evidence survive the upload reset',async()=>{
+ const {adapter,context,identity}=adapterHarness();
+ await adapter.build({input:{image:new Blob(),identity:{context:'Caller supplied movie'},
+  evidence:{description:'Supported description'},userOverrides:{brand:''}}});
+ assert.equal(identity.context,'Caller supplied movie');
+ assert.equal(identity.logoText,'');
+ assert.equal(context.cardEvidence.description,'Supported description');
+});
+test('CardData capture does not promote interpreted lastVision to original reader evidence',()=>{
+ let received;
+ const context=vm.createContext({
+  CARD_DATA_STREAM:{build:options=>{received=options;return options}},
+  cardEvidence:{title:'Original evidence'},lastVision:{title:'Weaker interpreted title'},
+  state:()=>({}),lastIntel:null,activeTemplate:()=>null,lastPlan:null,
+  lastImageComparison:null,lastWebContext:[],studioRequest:null
+ });
+ vm.runInContext(app.slice(app.indexOf('function studioData('),app.indexOf('function captureStudioCard(')),context);
+ context.studioData();
+ assert.equal(received.imageReader,undefined);
+ assert.equal(received.evidence.title,'Original evidence');
+});
+test('authoritatively empty front fields suppress detected and logo fallbacks',async()=>{
+ const context=vm.createContext({
+  state:()=>({identity:{logoText:'Printed logo'},detected:{title:'Printed title',context:'Printed context',brand:'Printed brand',date:'1990'}}),
+  cardEvidence:{userOverrides:{title:{value:''},context:{value:''},brand:{value:''},date:{value:''}}}
+ });
+ vm.runInContext(app.slice(app.indexOf('async function stampFrontIdentity('),app.indexOf('// Strong Topps-style 1/1')),context);
+ assert.equal(await context.stampFrontIdentity('source-image'),'source-image');
+});
+test('missing optional back modules retain the finished front',async()=>{
+ const diagnostics=[];
+ const context=vm.createContext({
+  CARD_STUDIO:null,CARD_DATA_STREAM:null,CARD_BACK:null,results:['finished-front'],activeResult:0,
+  recordBuildDiagnostic:(...args)=>diagnostics.push(args)
+ });
+ vm.runInContext(app.slice(app.indexOf('function studioData('),app.indexOf('function showFront(')),context);
+ assert.equal(context.captureStudioCard('finished-front'),undefined);
+ assert.equal(await context.buildBackCard(),undefined);
+ assert.equal(diagnostics[0][1].status,'unavailable');
+ assert.equal(context.results[0],'finished-front');
 });

@@ -230,11 +230,12 @@ async function fetchTemplateReferences(tpl){
 
 function builderDescription(freeform=''){
  const s=state();
- const title=s.identity.title||s.detected.title||'';
- const context=s.identity.context||s.detected.context||'';
- const brand=s.identity.brand||s.detected.brand||'';
+ const overrides=cardEvidence?.userOverrides||{};
+ const title=overrides.title?overrides.title.value:s.identity.title||s.detected.title||'';
+ const context=overrides.context?overrides.context.value:s.identity.context||s.detected.context||'';
+ const brand=overrides.brand?overrides.brand.value:s.identity.brand||s.detected.brand||'';
  const series=s.identity.series||'';
- const dateText=s.identity.dateText||s.detected.date||s.detected.era||'';
+ const dateText=overrides.date?overrides.date.value:s.identity.dateText||s.detected.date||s.detected.era||'';
  const subjectType=s.detected.subjectType||lastVision?.subjectType||'';
  const keywords=Array.isArray(s.detected.keywords)?s.detected.keywords.slice(0,20):[];
  const visibleText=asTextArray(lastVision?.visibleText).slice(0,16);
@@ -649,7 +650,7 @@ async function iterateFinishedCardOnce(finished,{allowRepair=true}={}){
   const oldIndex=results.lastIndexOf(finished);
   if(oldIndex>=0)results.splice(oldIndex,1);
   critique=await updateReviewPanel(repaired).catch(()=>null);
-  return {finished:repaired,critique,repaired:true};
+  return {finished:repaired,critique,repaired:true,rendererPath:repairedOut.rendererPath};
  }catch(error){
   console.warn('Automatic repair failed; keeping the finished card',error);
   $('reviewStatus').textContent='Automatic repair could not finish. Your original finished card is still available.';
@@ -1838,8 +1839,8 @@ function selectedStats(){
 
 function studioData(){
  return CARD_DATA_STREAM.build({
-  evidence:cardEvidence,state:state(),intel:lastIntel,template:activeTemplate(),plan:lastPlan,
-  imageReader:lastVision,comparison:lastImageComparison,webMatches:lastWebContext,
+  evidence:cardEvidence,state:state(),intel:studioRequest?.intel||lastIntel,template:activeTemplate(),plan:lastPlan,
+  imageReader:studioRequest?.imageReader,comparison:lastImageComparison,webMatches:lastWebContext,
   userOverrides:studioRequest?.userOverrides,
   cardId:studioRequest?.cardId,setId:studioRequest?.setId,
   copyrightText:studioRequest?.copyrightText||'',
@@ -1847,15 +1848,16 @@ function studioData(){
  });
 }
 function captureStudioCard(front,iteration={}){
- if(!CARD_STUDIO||!CARD_DATA_STREAM)return;
+ if(!CARD_STUDIO?.recordArtifact||!CARD_DATA_STREAM?.build||!CARD_BACK?.formatFor)return;
  const data=studioData();
+ const renderer=iteration.rendererPath||buildDiagnostics.renderer||'unknown';
  const artifact=CARD_STUDIO.recordArtifact({
   id:data.cardId||undefined,setId:data.setId,cardData:data,
-  front:{image:front,templateId:data.templateId,renderPath:buildDiagnostics.renderer||'unknown'},
+  front:{image:front,templateId:data.templateId,renderPath:renderer},
   back:{image:'',format:CARD_BACK.formatFor(data),data},
   evidence:cardEvidence,sources:data.sources,provenance:data.provenance,
   build:{buildId:buildDiagnostics.buildId,createdAt:new Date().toISOString(),
-   renderer:buildDiagnostics.renderer||'unknown',
+   renderer,
    validation:{status:iteration.critique?'reviewed':'unavailable',critique:iteration.critique||null}}
  });
  studioCards.set(front,artifact);
@@ -1863,6 +1865,10 @@ function captureStudioCard(front,iteration={}){
 }
 async function buildBackCard({display=true,index=activeResult}={}){
  if(!results.length){$('status').textContent='Create the front first.';return}
+ if(!CARD_DATA_STREAM?.build||!CARD_BACK?.render){
+  recordBuildDiagnostic('back',{status:'unavailable'});
+  return;
+ }
  const front=results[index>=0?index:results.length-1];
  const artifact=studioCards.get(front)||captureStudioCard(front);
  const data=artifact?.back?.data||studioData();
@@ -1906,11 +1912,12 @@ function outlinedText(ctx,text,x,y,maxW,fill,stroke,lineWidth){
 
 async function stampFrontIdentity(dataURI){
  const s=state();
- const title=String(s.identity.title||s.detected.title||'').trim();
- const context=String(s.identity.context||s.detected.context||'').trim();
- const brand=String(s.identity.brand||s.identity.logoText||s.detected.brand||'').trim();
+ const overrides=typeof cardEvidence==='undefined'?{}:cardEvidence?.userOverrides||{};
+ const title=String(overrides.title?overrides.title.value:s.identity.title||s.detected.title||'').trim();
+ const context=String(overrides.context?overrides.context.value:s.identity.context||s.detected.context||'').trim();
+ const brand=String(overrides.brand?overrides.brand.value:s.identity.brand||s.identity.logoText||s.detected.brand||'').trim();
  const series=String(s.identity.series||'').trim();
- const date=String(s.identity.dateText||s.detected.date||'').trim();
+ const date=String(overrides.date?overrides.date.value:s.identity.dateText||s.detected.date||'').trim();
  if(!title&&!context&&!brand&&!series&&!date)return dataURI;
 
  const img=new Image();img.src=dataURI;
@@ -2418,11 +2425,19 @@ if(CARD_STUDIO)CARD_STUDIO.configure({
    if(Object.hasOwn(request,field))supplied[field]=request[field];
   }
   if(!Object.hasOwn(supplied,'title')&&request.subject)supplied.title=request.subject;
+  for(const [field,value] of Object.entries(request.identity||request.state?.identity||{})){
+   const normalizedField=field==='dateText'?'date':field;
+   if(!Object.hasOwn(supplied,normalizedField))supplied[normalizedField]=value;
+  }
+  for(const [field,provenance] of Object.entries(normalizedRequest.cardData?.provenance||{})){
+   if(provenance?.source==='user-correction'&&!Object.hasOwn(supplied,field))supplied[field]=provenance.value;
+  }
   studioRequest={...request,userOverrides:{...supplied,...request.userOverrides}};
   try{
    CARD_STATE?.reset();
    await setPhoto(request.image);
    await imageReadPromise;
+   if(request.evidence&&CARD_EVIDENCE)cardEvidence=CARD_EVIDENCE.merge(request.evidence,cardEvidence);
    if(request.referenceImage)await setReference(request.referenceImage);
    const overrides=studioRequest.userOverrides;
    const identityFields={title:'title',brand:'brand',context:'context',series:'series',date:'dateText',cardNumber:'cardNumber'};
@@ -2430,6 +2445,8 @@ if(CARD_STUDIO)CARD_STUDIO.configure({
     const value=entry&&typeof entry==='object'?entry.value:entry;
     if(CARD_EVIDENCE?.FIELDS.includes(field))cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,field,value);
     if(identityFields[field])CARD_STATE?.setIdentity(identityFields[field],String(value??''));
+    if(value===''&&state().detected&&Object.hasOwn(state().detected,field))state().detected[field]='';
+    if(field==='brand'&&value==='')CARD_STATE?.setIdentity('logoText','');
    }
    if(request.cardNumber)CARD_STATE?.setIdentity('cardNumber',request.cardNumber);
    const templateId=request.templateId||request.theme?.templateId;
