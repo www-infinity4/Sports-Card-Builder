@@ -1039,80 +1039,6 @@ Rules:
 
 
 
-function localDesignPlan(description,intel=null,intent=null){
- if(BUILDER){
-  const toolPlan=BUILDER.buildToolPlan(description);lastToolPlan=toolPlan;
-  return BUILDER.normalizeAIPlan({
-   era:toolPlan.semantics.year||'user-directed',
-   cardFamily:toolPlan.style.family,
-   suggestedYear:toolPlan.semantics.year||'',
-   suggestedCardType:toolPlan.semantics.cardType||'',
-   suggestions:[],
-   backStyle:'Match the front era, print language and information hierarchy.'
-  },toolPlan);
- }
- const d=String(description||'').trim();
- const style=styleKnowledge(d);
- const year=intent?.explicitYear||'';
- const player=intel?.player?.fullName||intent?.playerQuery||'the uploaded subject';
- const renderPrompt=[
-  'Transform reference image 0 into a finished collectible sports card.',
-  'Preserve the uploaded subject identity and recognizable face/body.',
-  d?'User direction: '+d+'.':'Use a clean, photo-first vintage sports-card composition.',
-  'Card-style guidance: '+style,
-  year?'Use '+year+' as the explicit era/year direction.':'',
-  'Render the WHOLE card as one coherent printed object with sharp rectangular card corners.',
-  'Use disciplined border geometry, intentional typography zones, period-appropriate print texture and restrained readable graphics.',
-  'Do not create a slab, holder, tabletop mockup, phone screen, empty template, placeholder window, or generic metallic frame.',
-  'Do not reproduce exact logos or trademark marks.',
-  'Keep generated lettering minimal because final production text is handled separately.'
- ].filter(Boolean).join(' ');
- return {
-  era:year||'user-directed',
-  cardFamily:'locally directed sports-card design',
-  outerBorder:'Follow the request literally; keep the full card perimeter clearly visible.',
-  innerFrame:'Structured print-card geometry that supports the photograph.',
-  palette:'Use colors requested by the user and appropriate team/era accents.',
-  photoTreatment:'Integrate '+player+' into the complete card artwork; do not paste the image into an empty frame.',
-  layout:'Photo-first collectible-card layout with deliberate border, name and team zones.',
-  materials:'Printed trading-card stock with era-appropriate matte or gloss finish.',
-  lighting:'Natural subject lighting integrated with the card art.',
-  typeZones:'Reserve readable player/team/stat zones without generating excessive fake text.',
-  specialDetails:'Preserve explicit design details from the request.',
-  suggestedYear:year,
-  suggestedCardType:intent?.cardType||'',
-  suggestions:[],
-  backStyle:'Match the front era and geometry with a readable statistics-first card back.',
-  mustPreserve:['subject identity','explicit colors','explicit border and era instructions','full sharp card corners'],
-  mustAvoid:['slab or holder','tabletop mockup','generic luxury frame','unrequested logos'],
-  renderPrompt
- };
-}
-
-function localReferencePlan(description){
- const d=String(description||'').trim();
- return {
-  designDNA:'Carry over the composition and visual design language from reference image 1.',
-  outerBorder:'Match the reference card perimeter and border proportions while keeping the entire card visible.',
-  innerFrame:'Adapt the reference framing around the new subject.',
-  palette:'Carry over the reference color relationships unless the user overrides them.',
-  photoWindow:'Use reference image 0 as the subject and reference image 1 only for design language.',
-  typeZones:'Match the reference hierarchy without copying literal names, logos, or trademarks.',
-  materials:'Match the reference print/foil/material treatment.',
-  rarityTreatment:'Preserve useful rarity cues from the reference.',
-  specialDetails:'Keep sharp rectangular card corners and coherent whole-card construction.',
-  mustPreserve:['subject identity from image 0','design language from image 1','full card perimeter'],
-  mustAdapt:['names','team identifiers','literal text and trademarks'],
-  renderPrompt:[
-   'Create a finished sports card using reference image 0 for subject identity and reference image 1 for design/style.',
-   d?'User direction: '+d+'.':'',
-   'Carry over reference image 1 composition, border geometry, color blocking, materials, photo-window proportions, typography zones and collector details.',
-   'Do not copy literal names, team logos, trademarks or text from the reference card.',
-   'Integrate the new subject naturally into the complete printed card. Keep the entire card visible with sharp rectangular corners. No slab, holder or tabletop mockup.'
-  ].filter(Boolean).join(' ')
- };
-}
-
 async function buildReferencePlan(description){
  const input=`You are Oracle, a senior sports-card design analyst. The user supplied TWO images:
 - reference image 0 = the SUBJECT that must appear on the new card
@@ -1311,80 +1237,6 @@ async function stampCollectorMarks(dataURI){
 async function stampProductLine(dataURI){return dataURI;}
 
 
-async function renderExactCard(sourceBlob){
- const img=new Image();img.src=URL.createObjectURL(sourceBlob);
- await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('source_image_load_failed'))});
- const canvas=document.createElement('canvas');canvas.width=768;canvas.height=1024;
- const ctx=canvas.getContext('2d',{alpha:false});
- const s=state(),id=s.identity||{},style=s.selections.style||'flagship',border=s.selections.border||'white';
-
- let paper='#ffffff',ink='#11161c',accent='#c62f2f',accent2='#244d77';
- if(style==='donruss'){paper='#f0eadb';ink='#171717';accent='#d04a2f';accent2='#263b67'}
- else if(style==='fleer'){paper='#f8fbfd';ink='#15202a';accent='#2b77b8';accent2='#dc3a45'}
- else if(style==='upperdeck'){paper='#e8edf1';ink='#15202a';accent='#7b8f9e';accent2='#2d5d8a'}
- else if(style==='topps'){paper='#fbfaf6';ink='#121820';accent='#d53b32';accent2='#315d8b'}
-
- if(border==='black'){paper='#111318';ink='#ffffff'}
- if(border==='chrome'){paper='#d8dde2';ink='#11161c'}
- if(border==='hologram'){paper='#e8edf4';ink='#11161c'}
-
- ctx.fillStyle=paper;ctx.fillRect(0,0,768,1024);
-
- // Card-family geometry. This is deterministic card composition, not image generation.
- if(style==='donruss'){
-  ctx.fillStyle=accent;ctx.fillRect(24,24,720,22);ctx.fillStyle=accent2;ctx.fillRect(24,52,720,12);
-  ctx.save();ctx.translate(650,820);ctx.rotate(-.22);ctx.fillStyle=accent;ctx.fillRect(-120,-18,250,36);ctx.restore();
- }else if(style==='fleer'){
-  ctx.fillStyle=accent;ctx.fillRect(24,24,10,976);ctx.fillStyle=accent2;ctx.fillRect(40,24,7,976);
- }else if(style==='upperdeck'){
-  ctx.strokeStyle='#7f909c';ctx.lineWidth=6;ctx.strokeRect(28,28,712,968);
-  ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.strokeRect(38,38,692,948);
- }else if(style==='topps'){
-  ctx.fillStyle=accent;ctx.fillRect(30,30,708,8);ctx.fillStyle=accent2;ctx.fillRect(30,43,708,5);
- }else{
-  ctx.strokeStyle=border==='black'?'#eceff2':'#d8dde2';ctx.lineWidth=3;ctx.strokeRect(36,36,696,952);
- }
-
- const px=58,py=76,pw=652,ph=754;
- ctx.fillStyle='#f3f4f5';ctx.fillRect(px,py,pw,ph);
- const scale=Math.max(pw/img.naturalWidth,ph/img.naturalHeight);
- const sw=pw/scale,sh=ph/scale;
- const sx=Math.max(0,(img.naturalWidth-sw)/2),sy=Math.max(0,(img.naturalHeight-sh)/2);
- ctx.drawImage(img,sx,sy,sw,sh,px,py,pw,ph);
- URL.revokeObjectURL(img.src);
- ctx.strokeStyle=border==='black'?'#f5f5f5':'#1a2026';ctx.lineWidth=2;ctx.strokeRect(px,py,pw,ph);
-
- // Brand is the logo. It is text, never an invented image.
- const brand=(id.brand||'').trim();
- if(s.selections.useBrand&&brand){
-  ctx.fillStyle=ink;ctx.textAlign='left';ctx.font='900 25px Arial, Helvetica, sans-serif';
-  ctx.fillText(brand,58,61,360);
- }
-
- // Name and team/movie/context are composed directly into the card, not a black caption bar.
- const title=(id.title||s.detected?.title||'').trim();
- const context=(id.context||'').trim();
- ctx.textAlign='left';ctx.fillStyle=ink;
- if(s.selections.showName&&title){
-  ctx.font='900 34px Arial, Helvetica, sans-serif';
-  ctx.fillText(title,58,880,610);
- }
- if(s.selections.showContext&&context){
-  ctx.font='800 18px Arial, Helvetica, sans-serif';
-  ctx.fillText(context,58,912,610);
- }
- const detail=[id.series,s.selections.includeDate?id.dateText:''].filter(Boolean).join(' · ');
- if(detail){
-  ctx.font='700 14px Arial, Helvetica, sans-serif';ctx.globalAlpha=.8;ctx.fillText(detail,58,940,610);ctx.globalAlpha=1;
- }
-
- // Legal line stays readable without creating a bottom bar.
- ctx.textAlign='center';ctx.font='700 11px Arial, Helvetica, sans-serif';ctx.fillStyle=ink;ctx.globalAlpha=.78;
- ctx.fillText('Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC',384,998,700);
- ctx.globalAlpha=1;
- return {ok:true,dataURI:canvas.toDataURL('image/png'),mode:'exact-source'};
-}
-
 async function blobToDataURI(blob){
  return await new Promise((resolve,reject)=>{
   const reader=new FileReader();
@@ -1411,11 +1263,11 @@ async function renderWithComfy(blob,prompt){
 }
 
 async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
- const transport=await prepareTransportImage(blob,{max:500,maxBytes:900000});
+ const transport=await prepareTransportImage(blob,{max:480,maxBytes:800000});
  const form=new FormData();
  form.append('image',transport,'subject.jpg');
  if(designBlob){
-  const designTransport=await prepareTransportImage(designBlob,{max:500,maxBytes:900000});
+  const designTransport=await prepareTransportImage(designBlob,{max:480,maxBytes:800000});
   form.append('design_reference',designTransport,'design-reference.jpg');
  }
  form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.'));
@@ -1431,32 +1283,86 @@ async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
  return d;
 }
 
+async function gptRenderRecovery(prompt,description,error){
+ const input=`You are the senior rendering manager for a collectible-card image pipeline. A capable image renderer failed. Diagnose the failure from the exact error and rewrite the render instruction so the renderer has the best chance of succeeding WITHOUT weakening the user's requirements.
+
+ORIGINAL CARD DESCRIPTION:
+${description||''}
+
+ORIGINAL RENDER PROMPT:
+${prompt||''}
+
+RENDER FAILURE:
+${String(error?.message||error||'unknown')}
+
+Return ONLY JSON:
+{
+ "reason":"",
+ "renderPrompt":""
+}
+
+Rules:
+- Preserve every supported factual subject detail and every explicit user instruction.
+- Preserve the source subject identity; do not invent a replacement person, team, brand or era.
+- Keep the request as one finished collectible card, not a mockup, slab, frame or template.
+- If the failure suggests input validation, simplify prompt structure and remove redundant wording rather than removing requirements.
+- If the failure suggests model/provider availability, write a renderer-neutral prompt suitable for the next capable image model.
+- Do not fall back to canvas, generic templates, placeholder fields or fake data.
+`;
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
+  method:'POST',
+  headers:{'Content-Type':'application/json','Accept':'application/json'},
+  body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'renderer-recovery-manager'}})
+ },10000);
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok)throw new Error('gpt_renderer_recovery_unavailable: '+String(d.error||r.status));
+ const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
+ if(!parsed?.renderPrompt)throw new Error('gpt_renderer_recovery_invalid');
+ return parsed;
+}
+
 async function renderCard(blob,prompt,description,designBlob=null){
- // A finished card must come from an actual image renderer.
- // Never disguise the simple canvas compositor as a successful AI-designed card.
+ let firstError=null;
  try{
   const out=await renderWithWorkersAI(blob,prompt,description,designBlob);
   out.rendererPath='workers-ai-reference-image';
   return out;
- }catch(workersError){
-  console.warn('Workers AI renderer unavailable',workersError);
+ }catch(error){
+  firstError=error;
+  console.warn('Workers AI first render failed',error);
+ }
+
+ // GPT is the fallback manager. It diagnoses the actual failure and rewrites
+ // the instruction before we ask a renderer to try again.
+ let recovery=null;
+ try{
+  recovery=await gptRenderRecovery(prompt,description,firstError);
+  const retry=await renderWithWorkersAI(blob,recovery.renderPrompt,description,designBlob);
+  retry.rendererPath='workers-ai-gpt-recovery';
+  retry.recoveryReason=String(recovery.reason||'');
+  return retry;
+ }catch(recoveryError){
+  console.warn('GPT-managed Workers AI recovery failed',recoveryError);
+
+  // The alternate renderer still executes GPT's recovered prompt when available.
+  // It is another employee, never a deterministic/template fallback.
   try{
-   const out=await renderWithComfy(blob,prompt||description||'Create a polished collectible trading card from the uploaded image.');
-   out.rendererPath='comfy';
+   if(!recovery)recovery=await gptRenderRecovery(prompt,description,recoveryError);
+   const out=await renderWithComfy(blob,recovery.renderPrompt||prompt||description||'Create a polished collectible trading card from the uploaded image.');
+   out.rendererPath='comfy-gpt-recovery';
+   out.recoveryReason=String(recovery?.reason||'');
    return out;
   }catch(comfyError){
-   console.warn('No AI renderer available',comfyError);
-   const workersDetail=String(workersError?.message||workersError||'Workers AI failed');
-   const comfyDetail=String(comfyError?.message||comfyError||'Comfy failed');
-   const e=new Error(workersDetail+' · '+comfyDetail);
-   e.code='ai_renderer_unavailable';
-   e.workersError=workersDetail;
-   e.comfyError=comfyDetail;
+   const e=new Error(
+    'GPT-managed rendering failed. First: '+String(firstError?.message||firstError||'unknown')+
+    ' · Recovery: '+String(recoveryError?.message||recoveryError||'unknown')+
+    ' · Alternate renderer: '+String(comfyError?.message||comfyError||'unknown')
+   );
+   e.code='gpt_managed_rendering_failed';
    throw e;
   }
  }
 }
-
 async function nextPaint(){
  return await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 }
