@@ -257,6 +257,57 @@ async function generateFromPlan(kind='single',count=1){
 }
 
 
+async function readUploadedImage(blob){
+ const form=new FormData();
+ form.append('image',blob,'reader.jpg');
+ const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},12000);
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok||!d.ok)return null;
+ return d;
+}
+
+function applyVisionResult(data){
+ if(!data)return;
+ const title=(data.titleOptions||[])[0]||'';
+ const detected={
+  title:title,
+  subjectType:data.subjectType||'',
+  brand:(data.brandOptions||[])[0]||'',
+  logo:(data.logoOptions||[])[0]||'',
+  era:(data.dateOptions||[])[0]||'',
+  date:(data.dateOptions||[])[0]||'',
+  keywords:Array.isArray(data.keywords)?data.keywords:[]
+ };
+ CARD_STATE?.applyDetected(detected);
+ if(title&&Number(data.confidence||0)>=70&&!state().identity.title){
+  CARD_STATE?.setIdentity('title',title);
+  $('cardTitleInput').value=title;
+  state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';
+ }
+ if(!state().identity.brand&&detected.brand){
+  CARD_STATE?.setIdentity('brand',detected.brand);
+  $('cardBrandInput').value=detected.brand;
+ }
+ if(!state().identity.logoText&&detected.logo){
+  CARD_STATE?.setIdentity('logoText',detected.logo);
+  $('cardLogoInput').value=detected.logo;
+ }
+ if(!state().identity.dateText&&detected.date){
+  CARD_STATE?.setIdentity('dateText',detected.date);
+  $('cardDateInput').value=detected.date;
+ }
+ applyReaderSuggestions({
+  titleOptions:data.titleOptions||[],
+  styleOptions:data.styleOptions||[],
+  subjectType:data.subjectType||'',
+  brandOptions:data.brandOptions||[],
+  logoOptions:data.logoOptions||[],
+  dateOptions:data.dateOptions||[],
+  visibleText:data.visibleText||[],
+  keywords:data.keywords||[]
+ });
+}
+
 async function autoCropDominantImage(file){
  if(!file)return {blob:null,cropped:false,box:null};
  const bitmap=await createImageBitmap(file);
@@ -375,7 +426,12 @@ async function setPhoto(file){
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
- $('status').textContent=prepared.cropped?'Main image found and cropped automatically.':'Photo ready. Choose buttons or tap Create Card immediately.';
+ $('status').textContent=prepared.cropped?'Main image found. Reading what is actually in it…':'Reading what is actually in the image…';
+ const vision=await readUploadedImage(sourceFile).catch(()=>null);
+ applyVisionResult(vision);
+ $('status').textContent=vision
+  ? ((vision.titleOptions||[])[0]?'Image read: '+(vision.titleOptions||[])[0]+'. Choose the card look.':'Image read. Choose the card look.')
+  : (prepared.cropped?'Main image cropped automatically. Choose the card look.':'Photo ready. Choose the card look.');
 }
 $('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
 $('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))openPicker()});
@@ -460,10 +516,10 @@ function styleKnowledge(description){
 
 
 async function extractCardIntent(description){
- const input=`Extract baseball-card creation intent from this request. Return ONLY JSON:
+ const input=`Extract collectible-card intent from this request. Return ONLY JSON:
 {"playerQuery":"","teamQuery":"","explicitYear":"","cardType":"","subset":"","historicalAngle":""}
 Request: ${description}
-Use playerQuery only for a real player name clearly implied by the request. Do not invent a player.`;
+Only use playerQuery when the request explicitly names a baseball player. Never infer one from unrelated subjects.`;
  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'card-entity-intent'}})},4500);
  const d=await r.json().catch(()=>({}));
  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -542,7 +598,7 @@ Rules:
 - No mockup, tabletop, slab, holder, phone screen, empty template or placeholder window.
 - Keep generated lettering minimal because final production text is added separately.
 - If verified player data is supplied, use it to suggest historically meaningful card concepts: standout seasons, team/position context, postseason-era concepts, matchup or teammate pairings when sensible. Do not fabricate statistics.
-- suggestions should be concise ready-to-use card ideas. Example: "1976 Reds catcher card with Johnny Bench and Big Red Machine championship-era styling."
+- suggestions should be concise ready-to-use card ideas derived only from verified subject context. Never inject unrelated teams, eras, people or examples.
 - suggestedYear should prefer a meaningful season supported by verified data unless the user explicitly named a year.
 - backStyle should describe a matching period-correct card-back design.
 - renderPrompt must be a single strong image-editing prompt that includes every important requirement above and explicitly says to transform reference image 0 into the finished card artwork.
