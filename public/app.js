@@ -173,47 +173,107 @@ function renderVariationBar(){
 }
 
 function reviewRequest(){
- const s=state(),issues=[];
+ const s=state();
  const title=(s.identity.title||s.detected.title||'').trim();
- if(!title)issues.push('title');
- if(s.selections.useBrand&&!s.identity.brand.trim())issues.push('brand');
- if(s.selections.useLogo&&!s.identity.logoText.trim())issues.push('logo');
- const complete=issues.length===0;
- return {complete,issues,title};
+ return {complete:Boolean(title),issues:title?[]:['title'],title};
 }
 
-function updateReviewPanel(){
+async function dataURIToBlob(dataURI){
+ const r=await fetch(dataURI);
+ return await r.blob();
+}
+
+async function askOracleToReview(src){
+ try{
+  const renderedBlob=await dataURIToBlob(src);
+  const visual=await readUploadedImage(renderedBlob).catch(()=>null);
+  const s=state();
+  const input=`You are Oracle, a senior collectible-card art director reviewing ONE finished card image.
+
+LOCKED REQUEST:
+${lastDescription||builderDescription('')}
+
+LOCKED IDENTITY:
+${JSON.stringify(s.identity)}
+
+LOCKED BUILD SETTINGS:
+${JSON.stringify(s.selections)}
+
+RENDERED-CARD VISION READ:
+${JSON.stringify(visual||{})}
+
+DESIGN PLAN:
+${JSON.stringify(lastPlan||{})}
+
+Return ONLY JSON:
+{
+ "summary":"one short sentence saying the most important thing to fix or preserve",
+ "actions":[
+  {"kind":"style","label":"short button label","instruction":"specific style correction"},
+  {"kind":"layout","label":"short button label","instruction":"specific layout/crop/spacing correction"},
+  {"kind":"variation","label":"short button label","instruction":"specific alternate direction"}
+ ]
+}
+
+Rules:
+- Judge the finished card, not a generic template.
+- Do not ask the user to fill title, brand, or logo; Auto Build owns those.
+- Preserve exact subject identity and user photo.
+- If visible text looks garbled or duplicated, say so and make the correction explicit.
+- If title/logo placement is missing or weak, make that the highest priority.
+- Keep each button label under 22 characters.
+- Never invent a real athlete or brand unsupported by the locked request or vision read.`;
+  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'finished-card-critic'}})},7000);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.ok)return null;
+  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
+  return parsed&&Array.isArray(parsed.actions)?parsed:null;
+ }catch{return null}
+}
+
+async function updateReviewPanel(src=''){
  const review=reviewRequest();
  const status=$('reviewStatus');
  const primary=$('retryBtn');
  const layout=$('tightenBtn');
  const variation=$('moreBtn');
  const back=$('backBtn');
+ $('reviewPanel').style.display='block';
+ back.style.display=state().selections.buildBack?'inline-block':'none';
+
  if(!review.complete){
-  const names=review.issues.map(x=>x==='title'?'title':x==='brand'?'brand':'logo').join(', ');
-  status.innerHTML='<strong>Request needs '+names+'.</strong> Add the missing identity details before asking for another render.';
-  primary.textContent='Complete Details';
-  primary.dataset.action='details';
+  status.innerHTML='<strong>Auto Build is finishing the card identity.</strong> The image reader will supply the title and brand treatment.';
+  primary.textContent='Re-read Image';
+  primary.dataset.action='reread';
+  primary.dataset.instruction='';
   layout.style.display='none';
   variation.style.display='none';
- }else{
-  status.innerHTML='<strong>Request is complete.</strong> Keep the content locked and choose what Oracle should improve.';
-  primary.textContent='Improve Style';
-  primary.dataset.action='style';
-  layout.textContent='Improve Layout';
-  layout.style.display='inline-block';
-  variation.textContent='New Variation';
-  variation.style.display='inline-block';
+  return;
  }
- back.style.display=state().selections.buildBack?'inline-block':'none';
- $('reviewPanel').style.display='block';
+
+ status.innerHTML='<strong>Oracle is reviewing this exact card…</strong>';
+ primary.textContent='Improve Style';primary.dataset.action='style';primary.dataset.instruction='';
+ layout.textContent='Improve Layout';layout.dataset.action='layout';layout.dataset.instruction='';layout.style.display='inline-block';
+ variation.textContent='New Variation';variation.dataset.action='variation';variation.dataset.instruction='';variation.style.display='inline-block';
+
+ const critique=src?await askOracleToReview(src):null;
+ if(!critique)return;
+ status.innerHTML='<strong>Oracle review:</strong> '+String(critique.summary||'The card is ready for a targeted refinement.');
+ const buttons=[primary,layout,variation];
+ critique.actions.slice(0,3).forEach((action,i)=>{
+  const btn=buttons[i];if(!btn)return;
+  const kind=['style','layout','variation'].includes(action.kind)?action.kind:(i===0?'style':i===1?'layout':'variation');
+  btn.dataset.action=kind;
+  btn.dataset.instruction=String(action.instruction||'');
+  btn.textContent=String(action.label||btn.textContent).slice(0,22);
+ });
 }
 
 async function showResult(index){
  const src=results[index];if(!src)return;
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
- renderVariationBar();updateReviewPanel();
+ renderVariationBar();await updateReviewPanel(src);
 }
 
 async function finishOutput(out){
@@ -226,11 +286,12 @@ async function finishOutput(out){
  results.push(finished);await showResult(results.length-1);return finished;
 }
 
-function variationPrompt(plan,kind,index=0){
+function variationPrompt(plan,kind,index=0,instruction=''){
  const base=plan.renderPrompt;
- if(kind==='style') return base+' IMPROVE STYLE ONLY: keep the subject, identity, requested border, material, card number, 1/1 policy and all locked details. Raise the art direction to a premium contemporary collectible standard with stronger visual hierarchy, more intentional graphic relationships, better material realism and one tasteful high-end detail. Do not add text or change the subject.';
- if(kind==='layout') return base+' IMPROVE LAYOUT ONLY: preserve the selected style and all locked details, but improve crop, spacing, subject scale, border discipline, negative space, balance and card proportions. Remove awkward empty areas and accidental framing. Do not add text or change the subject.';
- if(kind==='variation') return base+' Create a new sibling variation of the same approved request. Preserve every locked detail and subject identity, but explore one different premium composition while staying in the same card family.';
+ const directed=instruction?(' ORACLE REVIEW CORRECTION: '+instruction):'';
+ if(kind==='style') return base+' IMPROVE STYLE ONLY: keep the subject, identity, requested border, material, card number, 1/1 policy and all locked details. Raise the art direction to a premium contemporary collectible standard with stronger visual hierarchy, more intentional graphic relationships, better material realism and one tasteful high-end detail. Do not add text or change the subject.'+directed;
+ if(kind==='layout') return base+' IMPROVE LAYOUT ONLY: preserve the selected style and all locked details, but improve crop, spacing, subject scale, border discipline, negative space, balance and card proportions. Remove awkward empty areas and accidental framing. Do not add text or change the subject.'+directed;
+ if(kind==='variation') return base+' Create a new sibling variation of the same approved request. Preserve every locked detail and subject identity, but explore one different premium composition while staying in the same card family.'+directed;
  const modes=[
   'Variation 1: faithful execution. Follow the design plan closely while allowing tasteful card-making judgment.',
   'Variation 2: premium execution. Preserve every hard requirement, but allow one or two valuable collector-grade inventions such as rarity treatment, foil detail, corner device or print finish.',
@@ -239,7 +300,7 @@ function variationPrompt(plan,kind,index=0){
  return base+' '+modes[index%3];
 }
 
-async function generateFromPlan(kind='single',count=1){
+async function generateFromPlan(kind='single',count=1,instruction=''){
  if(!lastBlob||!lastPlan||!lastDescription)throw new Error('missing_build_state');
  if(BUILDER){
   const tp=lastPlan.toolSpec||lastToolPlan||BUILDER.buildToolPlan(lastDescription);
@@ -248,7 +309,7 @@ async function generateFromPlan(kind='single',count=1){
  }
  for(let i=0;i<count;i++){
   stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering through Oracle’s best available engine…');
-  const basePrompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i);
+  const basePrompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i,instruction);
   const prompt=ABILITY_ROUTER&&lastToolPlan?basePrompt+'\n\n'+ABILITY_ROUTER.buildCapabilityNote({...lastToolPlan,mode:buildMode}):basePrompt;
   const out=await renderCard(lastBlob,prompt,lastDescription,lastReferenceBlob);
   stage('render','done');
@@ -269,42 +330,101 @@ async function readUploadedImage(blob){
  return d;
 }
 
+function firstText(values){
+ return (Array.isArray(values)?values:[]).map(v=>String(v||'').trim()).find(Boolean)||'';
+}
+function titleCase(value){
+ return String(value||'').trim().replace(/\b\w/g,c=>c.toUpperCase());
+}
+async function completeVisionIdentity(data={}){
+ const fallbackTitle=firstText(data.titleOptions)||titleCase(data.subjectType)||titleCase(firstText(data.keywords))||'Featured Card';
+ const fallbackBrand=firstText(data.brandOptions)||'Oracle Originals';
+ const fallbackLogo=firstText(data.logoOptions)||fallbackBrand;
+ const fallback={
+  ...data,
+  titleOptions:[fallbackTitle,...(data.titleOptions||[]).filter(x=>String(x).trim()!==fallbackTitle)],
+  brandOptions:[fallbackBrand,...(data.brandOptions||[]).filter(x=>String(x).trim()!==fallbackBrand)],
+  logoOptions:[fallbackLogo,...(data.logoOptions||[]).filter(x=>String(x).trim()!==fallbackLogo)]
+ };
+ try{
+  const input=`Complete the identity fields for a fantasy collectible card from IMAGE-READER METADATA. Return ONLY JSON:
+{"title":"","brand":"","logoText":"","series":"","dateText":"","style":""}
+
+IMAGE-READER METADATA:
+${JSON.stringify(data)}
+
+Rules:
+- Ground title in what the image reader actually detected. A strange or viral product name is allowed when supported by title candidates, visible text, or keywords.
+- Never invent the identity of a real person.
+- Use a real brand only when supported by the metadata. Otherwise create a short fantasy card/product brand appropriate to the subject.
+- logoText should be a short printable logo treatment, usually 1-3 words.
+- Do not return blanks: Auto Build must arrive with a usable title, brand, and logo treatment.
+- Keep title concise enough to print on the card.`;
+  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'image-identity-completion'}})},6500);
+  const d=await r.json().catch(()=>({}));
+  const parsed=r.ok&&d.ok?extractJSON(String(d.output||d.output_text||d.answer||'')):null;
+  if(parsed){
+   const title=String(parsed.title||fallbackTitle).trim();
+   const brand=String(parsed.brand||fallbackBrand).trim();
+   const logoText=String(parsed.logoText||brand||fallbackLogo).trim();
+   return {
+    ...fallback,
+    titleOptions:[title,...fallback.titleOptions.filter(x=>String(x).trim()!==title)],
+    brandOptions:[brand,...fallback.brandOptions.filter(x=>String(x).trim()!==brand)],
+    logoOptions:[logoText,...fallback.logoOptions.filter(x=>String(x).trim()!==logoText)],
+    seriesOptions:parsed.series?[String(parsed.series)]:[],
+    dateOptions:parsed.dateText?[String(parsed.dateText),...(fallback.dateOptions||[])]:fallback.dateOptions||[],
+    styleOptions:parsed.style?[String(parsed.style),...(fallback.styleOptions||[])]:fallback.styleOptions||[]
+   };
+  }
+ }catch{}
+ return fallback;
+}
+
 function applyVisionResult(data){
  if(!data)return;
- const title=(data.titleOptions||[])[0]||'';
+ const title=firstText(data.titleOptions)||titleCase(data.subjectType)||titleCase(firstText(data.keywords))||'Featured Card';
+ const brand=firstText(data.brandOptions)||'Oracle Originals';
+ const logo=firstText(data.logoOptions)||brand;
+ const series=firstText(data.seriesOptions);
+ const date=firstText(data.dateOptions);
  const detected={
-  title:title,
+  title,
   subjectType:data.subjectType||'',
-  brand:(data.brandOptions||[])[0]||'',
-  logo:(data.logoOptions||[])[0]||'',
-  era:(data.dateOptions||[])[0]||'',
-  date:(data.dateOptions||[])[0]||'',
+  brand,
+  logo,
+  era:date,
+  date,
   keywords:Array.isArray(data.keywords)?data.keywords:[]
  };
  CARD_STATE?.applyDetected(detected);
- if(title&&Number(data.confidence||0)>=70&&!state().identity.title){
+ if(!state().identity.title){
   CARD_STATE?.setIdentity('title',title);
   $('cardTitleInput').value=title;
   state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';
  }
- if(!state().identity.brand&&detected.brand){
-  CARD_STATE?.setIdentity('brand',detected.brand);
-  $('cardBrandInput').value=detected.brand;
+ if(!state().identity.brand){
+  CARD_STATE?.setIdentity('brand',brand);
+  $('cardBrandInput').value=brand;
  }
- if(!state().identity.logoText&&detected.logo){
-  CARD_STATE?.setIdentity('logoText',detected.logo);
-  $('cardLogoInput').value=detected.logo;
+ if(!state().identity.logoText){
+  CARD_STATE?.setIdentity('logoText',logo);
+  $('cardLogoInput').value=logo;
  }
- if(!state().identity.dateText&&detected.date){
-  CARD_STATE?.setIdentity('dateText',detected.date);
-  $('cardDateInput').value=detected.date;
+ if(series&&!state().identity.series){
+  CARD_STATE?.setIdentity('series',series);
+  $('cardSeriesInput').value=series;
+ }
+ if(date&&!state().identity.dateText){
+  CARD_STATE?.setIdentity('dateText',date);
+  $('cardDateInput').value=date;
  }
  applyReaderSuggestions({
-  titleOptions:data.titleOptions||[],
+  titleOptions:data.titleOptions||[title],
   styleOptions:data.styleOptions||[],
   subjectType:data.subjectType||'',
-  brandOptions:data.brandOptions||[],
-  logoOptions:data.logoOptions||[],
+  brandOptions:data.brandOptions||[brand],
+  logoOptions:data.logoOptions||[logo],
   dateOptions:data.dateOptions||[],
   visibleText:data.visibleText||[],
   keywords:data.keywords||[]
@@ -453,11 +573,11 @@ async function setPhoto(file){
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
  $('status').textContent=prepared.cropped?'Main image found. Reading what is actually in it…':'Reading what is actually in the image…';
- const vision=await readUploadedImage(sourceFile).catch(()=>null);
+ const visionRaw=await readUploadedImage(sourceFile).catch(()=>null);
+ const vision=await completeVisionIdentity(visionRaw||{});
  applyVisionResult(vision);
- $('status').textContent=vision
-  ? ((vision.titleOptions||[])[0]?'Image read: '+(vision.titleOptions||[])[0]+'. Choose the card look.':'Image read. Choose the card look.')
-  : (prepared.cropped?'Main image cropped automatically. Choose the card look.':'Photo ready. Choose the card look.');
+ const autoTitle=state().identity.title||firstText(vision.titleOptions);
+ $('status').textContent='Auto Build read the image'+(autoTitle?': '+autoTitle:'')+'. Title, brand, and logo are filled in; change them only if you want.';
 }
 $('photo').addEventListener('change',async e=>{
  const files=[...(e.target.files||[])].filter(f=>f.type.startsWith('image/'));
@@ -1085,13 +1205,13 @@ async function createCard(count=1,mode='original'){
  }finally{setBusy(false)}
 }
 
-async function buildAction(kind){
+async function buildAction(kind,instruction=''){
  if(!lastBlob||!lastPlan||!lastDescription){$('status').textContent='Create a card first.';return}
  setBusy(true,kind==='style'?'Improving style…':kind==='layout'?'Improving layout…':'Creating…');
  $('buildMonitor').style.display='block';$('resultImage').style.display='none';$('resultActions').style.display='none';resetMonitor();
  stage('prepare','done');stage('plan','done');
  try{
-  await generateFromPlan(kind,1);
+  await generateFromPlan(kind,1,instruction);
  }catch(e){
   const active=document.querySelector('.buildStep.active');if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
   $('buildNote').textContent='This variation stopped. Your previous cards are safe.';
@@ -1102,17 +1222,21 @@ async function buildAction(kind){
 $('make').addEventListener('click',()=>createCard(1,'original'));
 $('buildLike').addEventListener('click',()=>createCard(1,'reference'));
 $('make3').addEventListener('click',()=>createCard(3,referenceFile?'reference':'original'));
-$('retryBtn').addEventListener('click',()=>{
- if($('retryBtn').dataset.action==='details'){
-  openBuilderStep('identity');
-  $('customFields').classList.add('open');
-  $('composer').scrollIntoView({behavior:'smooth',block:'start'});
+$('retryBtn').addEventListener('click',async()=>{
+ const action=$('retryBtn').dataset.action||'style';
+ if(action==='reread'){
+  if(sourceFile){
+   $('reviewStatus').innerHTML='<strong>Re-reading the uploaded image…</strong>';
+   const vision=await completeVisionIdentity(await readUploadedImage(sourceFile).catch(()=>({})));
+   applyVisionResult(vision);
+   await updateReviewPanel(results[activeResult]||results.at(-1)||'');
+  }
   return;
  }
- buildAction('style');
+ buildAction(action,$('retryBtn').dataset.instruction||'');
 });
-$('tightenBtn').addEventListener('click',()=>buildAction('layout'));
-$('moreBtn').addEventListener('click',()=>buildAction('variation'));
+$('tightenBtn').addEventListener('click',()=>buildAction($('tightenBtn').dataset.action||'layout',$('tightenBtn').dataset.instruction||''));
+$('moreBtn').addEventListener('click',()=>buildAction($('moreBtn').dataset.action||'variation',$('moreBtn').dataset.instruction||''));
 $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
