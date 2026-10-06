@@ -426,6 +426,28 @@ function applyVisionResult(data){
  });
 }
 
+function normalizedName(value){
+ return String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+async function maybePrefillVerifiedContext(vision={}){
+ if(state().identity.context)return;
+ const subject=String(vision.subjectType||'').toLowerCase();
+ const keywords=(vision.keywords||[]).join(' ').toLowerCase();
+ if(!/baseball|athlete|player|pitcher|catcher|fielder|batter|mlb/.test(subject+' '+keywords))return;
+ const title=(state().identity.title||firstText(vision.titleOptions)||'').trim();
+ if(!title)return;
+ try{
+  const intel=await fetchPlayerIntel(title);
+  const actual=intel?.player?.fullName||'';
+  if(!actual||normalizedName(actual)!==normalizedName(title))return;
+  const latest=(intel.highlights||[])[0]||(intel.seasons||[]).slice(-1)[0]||null;
+  const team=String(latest?.team||'').trim();
+  if(!team)return;
+  CARD_STATE?.setIdentity('context',team);
+  if($('cardContextInput'))$('cardContextInput').value=team;
+ }catch{}
+}
+
 async function autoCropDominantImage(file){
  if(!file)return {blob:null,cropped:false,box:null};
  const bitmap=await createImageBitmap(file);
@@ -571,6 +593,7 @@ async function setPhoto(file){
  const visionRaw=await readUploadedImage(sourceFile).catch(()=>null);
  const vision=await completeVisionIdentity(visionRaw||{});
  applyVisionResult(vision);
+ await maybePrefillVerifiedContext(vision);
  const autoTitle=state().identity.title||firstText(vision.titleOptions);
  $('status').textContent='Image read complete'+(autoTitle?': '+autoTitle:'')+'. Check the name and team/movie fields; nothing unsupported will be invented.';
 }
@@ -1151,7 +1174,8 @@ async function createCard(count=1,mode='original'){
   stage('prepare','done');
   stage('plan','active','Locking your selected card design…');
   const chosenTitle=state().identity.title||state().detected.title||'';
-  const sportsContext=/\b(baseball|mlb|pitcher|catcher|rookie|home run|batting|reds|yankees|dodgers|cubs|cardinals)\b/i.test(lastDescription);
+  const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
+  const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
   lastIntent={
    playerQuery:sportsContext?chosenTitle:'',
    teamQuery:'',
