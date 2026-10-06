@@ -294,6 +294,9 @@ ${JSON.stringify(lastPlan||{})}
 
 Return ONLY JSON:
 {
+ "qualityScore":0,
+ "blocking":false,
+ "repairInstruction":"",
  "summary":"one short sentence saying the most important thing to fix or preserve",
  "actions":[
   {"kind":"style","label":"short button label","instruction":"specific style correction"},
@@ -308,6 +311,10 @@ Rules:
 - Code Phi screenshot vision is the strongest evidence for what a phone user actually sees.
 - Use the rendered-card vision read and screenshot vision to judge what is visibly present; do not assume requested text or branding actually rendered.
 - Strongly penalize giant dead space, tiny title/logo treatment, generic picture-frame appearance, weak subject scale, awkward crop, unreadable or duplicated text, and collector marks that collide with content.
+- qualityScore is 0-100 for the finished card as actually seen on a phone.
+- blocking=true ONLY for a clear major defect that should be repaired before presenting the final card: broken/missing image, severe crop, giant unintended dead space, generic empty-frame output, illegible/garbled dominant text, or a major collision.
+- repairInstruction must be a single executable correction for the renderer. If blocking=false, leave repairInstruction blank.
+- Do not call normal taste differences blocking.
 - Do not ask the user to fill title, brand, or logo; Auto Build owns those.
 - Preserve exact subject identity and user photo.
 - If visible text looks garbled or duplicated, make the correction explicit.
@@ -359,9 +366,10 @@ async function updateReviewPanel(src=''){
  const critique=src?await askOracleToReview(src):null;
  if(!critique){
   status.innerHTML='<strong>Oracle visual review could not finish.</strong> The finished card is still available; use Improve Style, Improve Layout, or New Variation.';
-  return false;
+  return null;
  }
- status.innerHTML='<strong>Oracle review:</strong> '+String(critique.summary||'The card is ready for a targeted refinement.');
+ const score=Number(critique.qualityScore);
+ status.innerHTML='<strong>Oracle review'+(Number.isFinite(score)?' · '+Math.max(0,Math.min(100,Math.round(score)))+'/100':'')+':</strong> '+String(critique.summary||'The card is ready for a targeted refinement.');
  const buttons=[primary,layout,variation];
  critique.actions.slice(0,3).forEach((action,i)=>{
   const btn=buttons[i];if(!btn)return;
@@ -370,7 +378,7 @@ async function updateReviewPanel(src=''){
   btn.dataset.instruction=String(action.instruction||'');
   btn.textContent=String(action.label||btn.textContent).slice(0,22);
  });
- return true;
+ return critique;
 }
 
 async function showResult(index,{review=true}={}){
@@ -381,13 +389,38 @@ async function showResult(index,{review=true}={}){
  renderVariationBar();if(review)await updateReviewPanel(src);
 }
 
-async function finishOutput(out,{review=true}={}){
+async function finishOutput(out,{review=true,display=true}={}){
  if(!out?.dataURI)throw new Error('empty_image');
  const base=out.dataURI;
  const typed=await stampFrontIdentity(base);
  const finished=await stampCollectorMarks(typed);
  const img=new Image();img.src=finished;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('image_display_failed'))});
- results.push(finished);await showResult(results.length-1,{review});return finished;
+ results.push(finished);
+ if(display)await showResult(results.length-1,{review});
+ return finished;
+}
+
+async function iterateFinishedCardOnce(finished,{allowRepair=true}={}){
+ let critique=await updateReviewPanel(finished).catch(()=>null);
+ const score=Number(critique?.qualityScore);
+ const shouldRepair=Boolean(
+  allowRepair&&critique?.blocking&&String(critique?.repairInstruction||'').trim()&&
+  (!Number.isFinite(score)||score<72)
+ );
+ if(!shouldRepair)return {finished,critique,repaired:false};
+
+ stage('iterate','active','GPT found a blocking visual defect. Repairing it once before final output…');
+ const repairInstruction=String(critique.repairInstruction||'').trim();
+ const repairPrompt=(lastPlan?.renderPrompt||lastDescription||'Create a polished collectible card from the uploaded image.')+
+  ' ORACLE AUTOMATIC REPAIR: '+repairInstruction+
+  ' Preserve the exact uploaded source subject and all locked factual text/data. Do not introduce a new subject, brand, team, era or title.';
+
+ const repairedOut=await renderCard(lastBlob,repairPrompt,lastDescription,lastReferenceBlob);
+ const oldIndex=results.lastIndexOf(finished);
+ if(oldIndex>=0)results.splice(oldIndex,1);
+ const repaired=await finishOutput(repairedOut,{review:false,display:false});
+ critique=await updateReviewPanel(repaired).catch(()=>null);
+ return {finished:repaired,critique,repaired:true};
 }
 
 function variationPrompt(plan,kind,index=0,instruction=''){
@@ -413,11 +446,12 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
   const out=await renderCard(lastBlob,basePrompt,lastDescription,lastReferenceBlob);
   stage('render','done');
   stage('finish','active','Finishing…');
-  const finished=await finishOutput(out,{review:false});
+  const finished=await finishOutput(out,{review:false,display:false});
   stage('finish','done');
   stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
-  const reviewed=await updateReviewPanel(finished).catch(()=>false);
-  stage('iterate','done',reviewed?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
+  const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
+  stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
+  await showResult(results.length-1,{review:false});
  }
  $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 }
