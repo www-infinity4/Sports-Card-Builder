@@ -348,6 +348,61 @@ async function readUploadedImage(blob){
 function firstText(values){
  return (Array.isArray(values)?values:[]).map(v=>String(v||'').trim()).find(Boolean)||'';
 }
+
+function asTextArray(v){
+ if(Array.isArray(v))return v.map(x=>String(x||'').trim()).filter(Boolean);
+ if(typeof v==='string'&&v.trim())return [v.trim()];
+ return [];
+}
+function normalizeVisionPayload(raw={}){
+ const root=raw&&typeof raw==='object'?raw:{};
+ const nested=[root.analysis,root.result,root.vision,root.data].find(v=>v&&typeof v==='object')||{};
+ const all={...nested,...root};
+
+ const visibleText=[
+  ...asTextArray(all.visibleText),
+  ...asTextArray(all.ocr),
+  ...asTextArray(all.text),
+  ...asTextArray(all.detectedText)
+ ].filter(Boolean);
+
+ const titleOptions=[
+  ...asTextArray(all.titleOptions),
+  ...asTextArray(all.titles),
+  ...asTextArray(all.title),
+  ...visibleText.filter(t=>t.length<=80)
+ ].filter(Boolean);
+
+ const brandOptions=[
+  ...asTextArray(all.brandOptions),
+  ...asTextArray(all.brands),
+  ...asTextArray(all.brand),
+  ...asTextArray(all.logoText)
+ ].filter(Boolean);
+
+ const contextOptions=[
+  ...asTextArray(all.contextOptions),
+  ...asTextArray(all.teamOptions),
+  ...asTextArray(all.movieOptions),
+  ...asTextArray(all.context),
+  ...asTextArray(all.team),
+  ...asTextArray(all.movie)
+ ].filter(Boolean);
+
+ return {
+  ...all,
+  visibleText:[...new Set(visibleText)],
+  titleOptions:[...new Set(titleOptions)],
+  brandOptions:[...new Set(brandOptions)],
+  contextOptions:[...new Set(contextOptions)],
+  subjectType:String(all.subjectType||all.subject||all.category||'').trim(),
+  keywords:[...new Set([
+   ...asTextArray(all.keywords),
+   ...asTextArray(all.labels),
+   ...asTextArray(all.tags)
+  ])]
+ };
+}
 function titleCase(value){
  return String(value||'').trim().replace(/\b\w/g,c=>c.toUpperCase());
 }
@@ -595,13 +650,17 @@ async function setPhoto(file){
   try{
    const visionRaw=await readUploadedImage(file).catch(()=>null);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
-   const vision=await completeVisionIdentity(visionRaw||{});
+   const normalizedVision=normalizeVisionPayload(visionRaw||{});
+   const vision=await completeVisionIdentity(normalizedVision);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    applyVisionResult(vision);
 
    // Context lookup can be slower; run it after the first prefills are already visible.
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
-   $('status').textContent='Photo checked'+(autoTitle?': '+autoTitle:'')+'. Prefilled what could be read; you can create now.';
+   const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
+   $('status').textContent=scanBits.length
+    ? 'Photo checked: '+scanBits.join(' · ')+'. Prefilled what could be read; you can create now.'
+    : 'Photo checked. No reliable title/context text was found; you can still create now.';
 
    maybePrefillVerifiedContext(vision).then(()=>{
     if(generation!==photoReadGeneration||sourceFile!==file)return;
