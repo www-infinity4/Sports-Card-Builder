@@ -753,19 +753,24 @@ async function createCard(count=1,mode='original'){
   lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
   buildMode=mode;
   stage('prepare','done');
-  stage('plan','active','Reading semantics, era, layout and locked card details…');
-  try{lastIntent=await extractCardIntent(lastDescription)}catch{lastIntent={playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''}}
-  try{lastIntel=lastIntent?.playerQuery?await fetchPlayerIntel(lastIntent.playerQuery):null}catch{lastIntel=null}
-  try{
-   lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription,lastIntel,lastIntent);
-  }catch{
-   lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
-  }
+  stage('plan','active','Locking your selected card design…');
+  const chosenTitle=state().identity.title||state().detected.title||'';
+  const sportsContext=/\b(baseball|mlb|pitcher|catcher|rookie|home run|batting|reds|yankees|dodgers|cubs|cardinals)\b/i.test(lastDescription);
+  lastIntent={
+   playerQuery:sportsContext?chosenTitle:'',
+   teamQuery:'',
+   explicitYear:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'',
+   cardType:sportsContext?'sports card':'collectible card',
+   subset:'',
+   historicalAngle:''
+  };
+  try{lastIntel=sportsContext&&chosenTitle?await fetchPlayerIntel(chosenTitle):null}catch{lastIntel=null}
+  lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
   if(CARD_CRITIC){
    const check=CARD_CRITIC.inspectSpec(state(),lastPlan?.renderPrompt||'');
    if(!check.ok&&CARD_TEMPLATES)lastPlan.renderPrompt=builderDescription(freeform)+'\n\n'+lastPlan.renderPrompt;
   }
-  renderSmartIdeas(lastPlan);
+  $('smartIdeas').style.display='none';
   if(ABILITY_ROUTER&&lastToolPlan)lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
   stage('plan','done',lastAbilityRoute?'Ability route locked: '+lastAbilityRoute.abilities.map(a=>a.engine).join(' → '):lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
   await generateFromPlan(count===3?'variations':'single',count);
@@ -801,6 +806,6 @@ $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
- results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';CARD_STATE?.reset();updateBuilderSummary();
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';CARD_STATE?.reset();$('message').value='';builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
