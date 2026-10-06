@@ -853,7 +853,11 @@ function applyIntel(spec,intel){
  const pos=intel.player?.primaryPosition;
  const posAbbr=typeof pos==='string'?pos:(pos?.abbreviation||'');
  if(posAbbr&&!spec.player.teamCard)spec.player.pos=posAbbr.length<=3?posAbbr:(/pitcher/i.test(posAbbr)?'P':spec.player.pos);
- if(intel.player?.fullName&&!spec.player.teamCard)spec.player.name=intel.player.fullName;
+ if(intel.player?.fullName&&!spec.player.teamCard&&intel.player.fullName!==spec.player.name){
+  const oldIni=initials(spec.player.name);
+  spec.player.name=intel.player.fullName;
+  if(spec.cardNumber.endsWith('-'+oldIni))spec.cardNumber=spec.cardNumber.slice(0,-oldIni.length)+initials(spec.player.name);
+ }
  spec.title=cardTitle(spec);
  spec.artPrompt=buildArtPrompt(spec);
  spec.value=valueReport(spec);
@@ -965,7 +969,7 @@ function renderBack(spec,intel=null){
 
  ctx.fillStyle='#121820';ctx.fillRect(0,H-64,W,64);
  ctx.fillStyle='#fff';ctx.font='700 13px '+SANS;ctx.textAlign='center';
- ctx.fillText('Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC',W/2,H-26,W-40);
+ ctx.fillText('Fantasy Craft Product · '+spec.brand+' · Produced by Goudey Tradition Trading Card Company LLC',W/2,H-26,W-40);
  return c.toDataURL('image/jpeg',0.95);
 }
 

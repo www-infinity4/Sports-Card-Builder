@@ -1841,6 +1841,7 @@ async function createCard(count=1,mode='original'){
 const AUTO_CARD=window.OracleAutoCard||null;
 let autoMode=false;
 let lastAutoSpec=null;
+const autoTitles=new Map();
 const autoBacks=new Map();
 
 function autoStageFor(message){
@@ -1858,7 +1859,9 @@ function downloadCurrentCard(){
  if(!src||!/^data:image\//.test(src))return;
  const a=document.createElement('a');
  a.href=src;
- a.download=fileSlug((lastAutoSpec?.title||state().identity.title||'card')+'-'+currentSide)+'.jpg';
+ const ext=(src.match(/^data:image\/(png|jpeg|webp)/)||[])[1]||'jpg';
+ const front=results[activeResult]||src;
+ a.download=fileSlug((autoTitles.get(front)||autoTitles.get(src)||state().identity.title||'card')+'-'+currentSide)+'.'+(ext==='jpeg'?'jpg':ext);
  document.body.appendChild(a);a.click();a.remove();
 }
 
@@ -1904,6 +1907,7 @@ async function autoCreate(count=1,{append=false}={}){
    stage('iterate','done','Card '+(i+1)+' finished: '+out.spec.value.tier+'.');
    results.push(out.front);
    autoBacks.set(out.front,out.back);
+   autoTitles.set(out.front,out.spec.title);
    lastAutoSpec=out.spec;
    if(out.warning)console.warn('Auto card artwork fallback',out.warning);
    if(count===1||i===count-1){
@@ -1968,7 +1972,7 @@ $('downloadBtn')?.addEventListener('click',downloadCurrentCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
- autoMode=false;autoBacks.clear();lastAutoSpec=null;
+ autoMode=false;autoBacks.clear();autoTitles.clear();lastAutoSpec=null;
  results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
