@@ -52,7 +52,7 @@ How it works (`public/auto-card.js`):
 1. The request is turned into a seeded card spec: subject, set, parallel, serial number, card number (`CRA-AJ`, `DK-12`…), rookie/auto/relic, plus a rarity tier, Value Index and simulated pack odds.
 2. Verified stats come from the existing `/v1/card-intel` service when it responds. Stats are never made up; if the service doesn't respond, the back prints only facts the build already has.
 3. Artwork, tried in order: your uploaded photo → a free text-to-image model (FLUX via Pollinations) → the project's `/v1/image` reference renderer → procedural painted artwork made in the browser. Because the last step always works, every build finishes.
-4. The frame, nameplate, foil serial, RC shield, blue-ink signature, relic window and the stat-table back are drawn on a canvas at 750×1050 (2.5×3.5 in at 300 dpi), so names are always spelled correctly.
+4. The frame, nameplate, foil serial, RC shield, blue-ink signature and relic window are drawn on a canvas at 750×1050 (2.5×3.5 in at 300 dpi), so names are always spelled correctly. The shared Card Data Stream supplies the evidence-backed back; unavailable statistics stay empty.
 
 Cards carry the product's own brand mark (`INFINITY` by default; set **Brand** in the identity fields to change it). The design follows modern flagship / chrome / heritage / NOW card conventions but does not reproduce Topps, Panini or MLB trademarks or logos.
 
@@ -72,6 +72,47 @@ The image search (SearXNG through the Cloudflare worker) now runs several querie
 ### Template database
 
 `public/card-template-db.js` holds 60+ card designs by maker and year — Topps (1952 → 2026, Chrome, Now, Heritage, Stadium Club), Bowman, Upper Deck, Donruss, Fleer, Score, Leaf, Panini, plus movie and TV sets (Star Wars, Batman, Marvel, Star Trek, X-Files…). Pick one under **Template**, or leave **Auto match** to choose from your text or the card maker/year GPT reads in the image (`1987 topps`, `donruss diamond kings`, `1989 batman`). For the chosen template the app searches online for real example images and caches them in the browser (`localStorage`, 7 days) as reference data for the design plan. Designs are described in words only; no logos or trademarks are copied.
+
+## Card Studio contracts
+
+The existing upload → image read → optional instruction → Create Card flow now finishes both sides automatically. The back uses the selected template's palette and vintage typography where appropriate; changing gallery cards restores that card's own back.
+
+`public/card-data-stream.js` exposes `OracleCardDataStream.build`, `create`, and `normalize` in the browser and CommonJS. CardData contains:
+
+- Identity: `cardId`, `setId`, `title`, `subtitle`, `subject`, `subjectType`, `category`, `context`.
+- Card information: `brand`, `maker`, `series`, `year`, `date`, `cardNumber`, `parallelNumber`, `rarity`, `templateId`.
+- Content: `biography`, `story`, `description`, `facts[]`, `stats[]`, `timeline[]`, `highlights[]`, `credits[]`.
+- Metadata: `sources[]`, `provenance`, `confidence`, `copyrightText`, `footerText`, `backFormat`.
+
+Unknown scalars are empty strings and lists are empty arrays. Categories are sports, movie, tv, music, product and generic. Each evidenced field has independent `{value, confidence, source}` provenance; list items retain their own provenance and sources. Explicit user corrections, including clearing a field, outrank automated evidence. Printed OCR outranks weaker web interpretations. The stream consumes CardEvidence, image-reader output, comparison, structured web evidence, identity/numbering and matched card-intel. A selected template contributes design metadata, not facts about the subject; unverified design-plan suggestions are never turned into facts. Statistics come only from name-matched, caller-verified responses from the existing card-intel service. `normalize` requires that intelligence input to re-enrich statistics.
+
+`OracleCardBack` supports `stats`, `biography`, `story`, `timeline`, `discography`, `movie-tv`, `product` and `compact-facts`, plus automatic category selection and the legacy `bio` alias / `buildData(state, intel, plan)` entry point. Fitting wraps long words, reserves card number and legal text, ranks evidence, and omits entire lower-priority entries before shrinking below readable sizes. `layout` / `render` return `omittedFields` with space reasons. Physically impossible amounts of required legal/header text cause an explicit error instead of clipped output.
+
+`public/card-studio-api.js` exposes:
+
+- `capabilities()` — implemented/configured/healthy/degraded/unavailable states, observed service health and unknown external health where not verified.
+- `buildRequest(input)` — `{schema: "phi.card-build-request/v1", input, cardData}`.
+- `buildCard(input)` — runs the registered existing browser pipeline; requires an image `Blob`, with optional reference-image `Blob`, instruction, template, numbering and factual `userOverrides`.
+- `buildSetManifest(input)` — pure request-manifest construction, not rendering.
+- `getCardData(id)` / `getArtifact(id)` — cloned, in-memory data/artifact lookup.
+- `configure`, `registerAdapter`, `recordArtifact` — reusable host integration hooks.
+
+For example, after the builder page has loaded:
+
+```js
+const artifact = await OracleCardStudio.buildCard({
+  image: uploadedFile,
+  instruction: "Use a vintage entertainment treatment",
+  userOverrides: { title: "Verified character", category: "movie" },
+  cardNumber: "1 / 8"
+});
+```
+
+Finished artifacts use `phi.card-artifact/v1`: `id`, `setId`, `front.{image,templateId,renderPath}`, `back.{image,format,data,omittedFields}`, `evidence`, `sources`, `provenance`, and `build.{buildId,createdAt,renderer,validation}`. Sources/provenance remain separate from visible artwork. Binary image payloads are stripped from metadata; the front/back image fields hold the artwork. Storage lasts for the page lifetime, not across reloads.
+
+Set manifests use `phi.card-set/v1`: `id`, `title`, `purpose`, `theme`, `cards`, `sources`, `createdAt`, numbering and pending status. Purposes are `movie-watcher`, `advertising`, `website`, `collection`, and `custom`. Supply distinct `subjects` matching `count` (1–100), or let the builder create distinct editorial focuses without inventing factual stories. Shared `theme` and optional per-card overrides become individual requests; IDs and fraction/prefix numbering are deterministic. Render a card's `request` through `buildCard` after providing its image. The manifest itself contains no generated images or claims of completed rendering.
+
+This is a browser-side capability, not a new HTTP endpoint or Cosmo integration. Existing Cloudflare image reading, intelligence, image rendering, search and external visual validation still require their respective runtimes. Merely configured GPU adapters and source-reference forks are not reported as healthy. No deployment settings are changed.
 
 ## Test
 
