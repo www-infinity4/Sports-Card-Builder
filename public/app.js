@@ -40,8 +40,8 @@ function state(){return CARD_STATE?.state||{selections:{border:'white',style:'fl
 
 function builderDescription(freeform=''){
  const s=state();
- const title=s.identity.title||s.detected.title||'Featured Card';
- if(CARD_NUMBERING&&!s.identity.cardNumber)s.identity.cardNumber=CARD_NUMBERING.number(title,1);
+ const title=s.identity.title||s.detected.title||'';
+ if(CARD_NUMBERING&&title&&!s.identity.cardNumber)s.identity.cardNumber=CARD_NUMBERING.number(title,1);
  const spec=CARD_TEMPLATES?CARD_TEMPLATES.compile(s,freeform):freeform;
  return [
   title?'Subject/title: '+title+'.':'',
@@ -62,15 +62,44 @@ function updateBuilderSummary(){
  $('builderSummary').textContent='Auto build: '+bits.join(' · ')+'.';
 }
 
-function activateChoice(group,value){
+function builderStepBlocks(){return [...document.querySelectorAll('#builderControls .controlBlock[data-builder-step]')];}
+function labelFor(group,value){
+ const groupEl=document.querySelector('[data-choice-group="'+group+'"]');
+ const btn=groupEl?.querySelector('.choiceBtn[data-value="'+value+'"]');
+ return btn?.textContent?.trim()||String(value||'');
+}
+function setStepSummary(block,text){
+ const b=block?.querySelector('.controlSummary');if(b)b.textContent=text||'Change';
+}
+function openBuilderStep(name){
+ const blocks=builderStepBlocks();
+ const target=blocks.find(b=>b.dataset.builderStep===name);
+ if(!target)return;
+ blocks.forEach(b=>{if(b!==target&&b.classList.contains('current'))b.classList.remove('current')});
+ target.classList.remove('complete');target.classList.add('current');
+}
+function completeBuilderStep(name,summary,next){
+ const block=builderStepBlocks().find(b=>b.dataset.builderStep===name);if(!block)return;
+ setStepSummary(block,summary);block.classList.remove('current');block.classList.add('complete');
+ if(next)openBuilderStep(next);
+}
+function activateChoice(group,value,advance=true){
  document.querySelectorAll('[data-choice-group="'+group+'"] .choiceBtn').forEach(b=>b.classList.toggle('active',b.dataset.value===value));
  CARD_STATE?.setSelection(group,value);
  updateBuilderSummary();
+ if(advance){
+  const next=group==='border'?'style':group==='style'?'finish':group==='finish'?'collector':null;
+  if(next)completeBuilderStep(group,labelFor(group,value),next);
+ }
 }
 
 function initBuilderControls(){
+ builderStepBlocks().forEach(block=>{
+  const summary=block.querySelector('.controlSummary');
+  if(summary)summary.addEventListener('click',()=>openBuilderStep(block.dataset.builderStep));
+ });
  document.querySelectorAll('[data-choice-group]').forEach(group=>{
-  group.querySelectorAll('.choiceBtn').forEach(btn=>btn.addEventListener('click',()=>activateChoice(group.dataset.choiceGroup,btn.dataset.value)));
+  group.querySelectorAll('.choiceBtn').forEach(btn=>btn.addEventListener('click',()=>activateChoice(group.dataset.choiceGroup,btn.dataset.value,true)));
  });
  $('oneOfOneToggle').addEventListener('click',()=>{
   const s=state();CARD_STATE?.setSelection('oneOfOne',!s.selections.oneOfOne);
@@ -89,15 +118,22 @@ function initBuilderControls(){
   const on=!state().selections.buildBack;CARD_STATE?.setSelection('buildBack',on);
   $('backToggle').classList.toggle('active',on);$('backToggle').textContent=on?'Build Back':'No Back';
  });
- ['editTitleBtn','editBrandBtn','editSeriesBtn'].forEach(id=>$(id).addEventListener('click',()=>{$('customFields').classList.toggle('open');}));
+ $('collectorContinue').addEventListener('click',()=>{
+  const s=state().selections;
+  completeBuilderStep('collector',[s.oneOfOne?'1/1':'no 1/1',s.signature==='signature'?'signature':'no signature',s.useLogo?'logo':'no logo',s.buildBack?'back':'front only'].join(' · '),'identity');
+ });
+ ['editTitleBtn','editBrandBtn','editSeriesBtn'].forEach(id=>$(id).addEventListener('click',()=>{$('customFields').classList.add('open');}));
  const inputMap={cardTitleInput:'title',cardBrandInput:'brand',cardLogoInput:'logoText',cardSeriesInput:'series',cardDateInput:'dateText'};
  Object.entries(inputMap).forEach(([id,key])=>$(id).addEventListener('input',e=>{
   CARD_STATE?.setIdentity(key,e.target.value);
-  if(key==='title'&&CARD_NUMBERING)state().identity.cardNumber=CARD_NUMBERING.number(e.target.value||state().detected.title||'Featured Card',1);
+  if(key==='title'&&CARD_NUMBERING)state().identity.cardNumber=e.target.value?CARD_NUMBERING.number(e.target.value,1):'';
  }));
+ $('identityContinue').addEventListener('click',()=>{
+  const s=state();const title=s.identity.title||s.detected.title||'Title not set';
+  completeBuilderStep('identity',[title,s.identity.brand,s.identity.series,s.identity.dateText].filter(Boolean).join(' · '),null);
+ });
  updateBuilderSummary();
 }
-
 function applyReaderSuggestions(data={}){
  CARD_STATE?.applyDetected(data);
  const box=$('readerIdeas');box.innerHTML='';
