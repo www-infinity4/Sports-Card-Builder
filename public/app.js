@@ -195,7 +195,7 @@ function renderSkillsPanel(route=null){
  const abilities=Array.isArray(route?.abilities)?route.abilities:[];
  box.innerHTML='';
  if(!abilities.length){box.style.display='none';return}
- const title=document.createElement('div');title.className='skillsLabel';title.textContent='Skills in use';box.appendChild(title);
+ const title=document.createElement('div');title.className='skillsLabel';title.textContent='Planned skills';box.appendChild(title);
  const chips=document.createElement('div');chips.className='skillsChips';
  abilities.forEach(a=>{
   const chip=document.createElement('div');chip.className='skillChip';
@@ -549,12 +549,18 @@ async function iterateFinishedCardOnce(finished,{allowRepair=true}={}){
   ' ORACLE AUTOMATIC REPAIR: '+repairInstruction+
   ' Preserve the exact uploaded source subject and all locked factual text/data. Do not introduce a new subject, brand, team, era or title.';
 
- const repairedOut=await renderCard(lastBlob,repairPrompt,lastDescription,lastReferenceBlob);
- const oldIndex=results.lastIndexOf(finished);
- if(oldIndex>=0)results.splice(oldIndex,1);
- const repaired=await finishOutput(repairedOut,{review:false,display:false});
- critique=await updateReviewPanel(repaired).catch(()=>null);
- return {finished:repaired,critique,repaired:true};
+ try{
+  const repairedOut=await renderCard(lastBlob,repairPrompt,lastDescription,lastReferenceBlob);
+  const repaired=await finishOutput(repairedOut,{review:false,display:false});
+  const oldIndex=results.lastIndexOf(finished);
+  if(oldIndex>=0)results.splice(oldIndex,1);
+  critique=await updateReviewPanel(repaired).catch(()=>null);
+  return {finished:repaired,critique,repaired:true};
+ }catch(error){
+  console.warn('Automatic repair failed; keeping the finished card',error);
+  $('reviewStatus').textContent='Automatic repair could not finish. Your original finished card is still available.';
+  return {finished,critique,repaired:false};
+ }
 }
 
 function variationPrompt(plan,kind,index=0,instruction=''){
@@ -1482,7 +1488,7 @@ ${JSON.stringify(intent||{})}
 BUILDER TOOL SPECIFICATION (treat hardRequirements as locked constraints; enrich, do not contradict):
 ${toolPlan?JSON.stringify({semantics:toolPlan.semantics,style:toolPlan.style,layout:toolPlan.layout,hardRequirements:BUILDER.hardRequirements(toolPlan.semantics,toolPlan.style,toolPlan.layout)}):'Builder toolkit unavailable.'}
 
-ACTIVE SKILLS / RESPONSIBILITIES:
+PLANNED SKILLS / RESPONSIBILITIES:
 ${lastAbilityRoute?ABILITY_ROUTER.buildCapabilityNote({...toolPlan,mode:buildMode}):'No ability router available.'}
 
 Return ONLY valid JSON:
@@ -1882,9 +1888,9 @@ async function blobToDataURI(blob){
  });
 }
 
-async function renderWithComfy(blob,prompt){
+async function renderWithComfy(blob,prompt,endpoint=COMFY_RENDERER_ENDPOINT){
  const imageDataURI=await blobToDataURI(blob);
- const r=await fetchWithTimeout(COMFY_RENDERER_ENDPOINT,{
+ const r=await fetchWithTimeout(endpoint,{
   method:'POST',
   headers:{'Content-Type':'application/json'},
   body:JSON.stringify({imageDataURI,prompt,width:768,height:1024,denoise:.28})
@@ -1892,8 +1898,8 @@ async function renderWithComfy(blob,prompt){
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
   const detail=String(d.error||d.detail||'comfy_renderer_failed');
-  const e=new Error('Comfy /v1/comfy-image '+r.status+': '+detail);
-  e.code=String(d.error||'comfy_renderer_failed');e.status=r.status;e.route='/v1/comfy-image';throw e
+  const e=new Error('Comfy '+endpoint+' '+r.status+': '+detail);
+  e.code=String(d.error||'comfy_renderer_failed');e.status=r.status;e.route=endpoint;throw e
  }
  return d;
 }
@@ -1958,6 +1964,19 @@ Rules:
 }
 
 async function renderCard(blob,prompt,description,designBlob=null){
+ if(!designBlob){
+  try{
+   const health=await fetchWithTimeout('/api/renderer/health',{},1500);
+   const status=await health.json().catch(()=>({}));
+   if(health.ok&&status.ok&&status.configured){
+    const out=await renderWithComfy(blob,prompt,'/api/render/comfy');
+    out.rendererPath='local-comfy-reference-image';
+    return out;
+   }
+  }catch(error){
+   console.warn('Local ComfyUI unavailable; trying Workers AI',error);
+  }
+ }
  let firstError=null;
  try{
   const out=await renderWithWorkersAI(blob,prompt,description,designBlob);
@@ -1980,11 +1999,10 @@ async function renderCard(blob,prompt,description,designBlob=null){
  }catch(recoveryError){
   console.warn('GPT-managed Workers AI recovery failed',recoveryError);
 
-  // The alternate renderer still executes GPT's recovered prompt when available.
-  // It is another employee, never a deterministic/template fallback.
+  // A manager outage must not prevent an independent renderer from running.
   try{
-   if(!recovery)recovery=await gptRenderRecovery(prompt,description,recoveryError);
-   const out=await renderWithComfy(blob,recovery.renderPrompt||prompt||description||'Create a polished collectible trading card from the uploaded image.');
+   if(designBlob)throw new Error('ComfyUI adapter does not support a second design reference');
+   const out=await renderWithComfy(blob,recovery?.renderPrompt||prompt||description||'Create a polished collectible trading card from the uploaded image.');
    out.rendererPath='comfy-gpt-recovery';
    out.recoveryReason=String(recovery?.reason||'');
    return out;
@@ -2039,19 +2057,29 @@ async function createCard(count=1,mode='original'){
 
   stage('plan','active','GPT is turning the image data + your instruction into a card plan…');
   try{
-   lastPlan=await buildDesignPlan(lastDescription,lastIntel,lastIntent);
+   lastPlan=mode==='reference'?await buildReferencePlan(lastDescription):await buildDesignPlan(lastDescription,lastIntel,lastIntent);
   }catch(firstPlanError){
    stage('plan','active','GPT is retrying the card plan with a stricter production brief…');
    const recoveryDescription=lastDescription+'\nRECOVERY PASS: The first planning call failed. Produce a simpler but stronger executable card plan. Preserve every supported fact and every explicit user instruction. Do not invent missing identity or branding.';
    try{
-    lastPlan=await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
+    lastPlan=mode==='reference'?await buildReferencePlan(recoveryDescription):await buildDesignPlan(recoveryDescription,lastIntel,lastIntent);
    }catch(secondPlanError){
     stage('plan','active','GPT is rebuilding a compact executable card plan…');
-    lastPlan=await buildCompactRecoveryPlan(recoveryDescription);
+    try{
+     lastPlan=await buildCompactRecoveryPlan(recoveryDescription);
+    }catch(planError){
+     console.warn('GPT planning unavailable; using the locked build request',planError);
+     const toolPlan=BUILDER?.buildToolPlan(lastDescription);
+     lastPlan=toolPlan?BUILDER.normalizeAIPlan({},toolPlan):{
+      renderPrompt:'Transform reference image 0 into one finished collectible card. Preserve the exact uploaded subject and supported factual details. Keep the full card perimeter visible. Do not invent identity, statistics, branding or generated lettering. Follow this locked request:\n'+lastDescription
+     };
+     lastPlan.planningSource='local-request';
+    }
+    if(mode==='reference')lastPlan.renderPrompt+=' Use reference image 1 for design language only; preserve the subject from reference image 0. Do not copy logos or literal text from the design reference.';
    }
   }
   renderSkillsPanel(lastAbilityRoute);
-  stage('plan','done','GPT plan ready.');
+  stage('plan','done',lastPlan.planningSource==='local-request'?'Locked request plan ready; GPT is unavailable.':'GPT plan ready.');
   await nextPaint();
 
   for(let i=0;i<count;i++){
@@ -2078,9 +2106,15 @@ async function createCard(count=1,mode='original'){
   const active=document.querySelector('.buildStep.active');
   if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
   const detail=String(e?.message||e||'unknown error');
-  if($('resultHeading'))$('resultHeading').textContent='Render failed';
-  $('buildNote').textContent='Build stopped: '+detail;
-  $('status').innerHTML='<strong>Render failed.</strong> '+detail;
+  if(results.length){
+   await showResult(results.length-1,{review:false});
+   $('buildNote').textContent='Remaining cards stopped: '+detail;
+   $('status').textContent=results.length+' finished card'+(results.length>1?'s':'')+' saved. Remaining build stopped: '+detail;
+  }else{
+   if($('resultHeading'))$('resultHeading').textContent='Render failed';
+   $('buildNote').textContent='Build stopped: '+detail;
+   $('status').textContent='Render failed. '+detail;
+  }
  }finally{
   setBusy(false);
  }

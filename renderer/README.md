@@ -11,6 +11,7 @@ It uses your fork of ComfyUI as the workflow runtime and the Sports Card Builder
 - job completion -> `/history/{prompt_id}`
 - result retrieval -> `/view`
 - browser -> Cloudflare `/v1/comfy-image` -> Oracle renderer `/api/render/comfy`
+- When served by the Node app: browser -> same-origin `/api/render/comfy`, after a successful `/api/renderer/health` check.
 
 ## Models
 
@@ -41,7 +42,9 @@ Then expose the Oracle API service publicly over HTTPS and set the Cloudflare Wo
 ORACLE_RENDERER_URL=https://your-renderer-host.example
 ```
 
-The browser already prefers `/v1/comfy-image`. Once the secret points to this service, ComfyUI/FLUX becomes the first renderer automatically.
+When the website is served by the Node app, a configured, healthy same-origin ComfyUI renderer is tried first. Static deployments use Workers AI `/v1/image` first, then a GPT-managed retry, then the Cloudflare `/v1/comfy-image` bridge. A GPT outage does not block that bridge: it receives the original locked render prompt when recovery is unavailable.
+
+The current ComfyUI workflow accepts one subject image, not a second design reference. Two-image reference builds therefore use Workers AI rather than silently dropping the design reference.
 
 ## Why the GPU host matters
 

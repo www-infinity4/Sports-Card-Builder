@@ -57,20 +57,20 @@ function route(build={}){
  const raw=String(build?.semantics?.raw||'').toLowerCase();
  const pipeline=['image_reader','web_context','manager','image_generation','exact_typography','browser_critic'];
  return {
-  version:'2026.10.06.3',
+  version:'2026.10.06.4',
   pipeline,
   abilities:pipeline.map(id=>ABILITIES[id]),
   optional:/reference|build like|use this card/.test(raw)?['reference-conditioning']:[],
-  execution:{active:pipeline}
+  execution:{planned:pipeline,active:[]}
  };
 }
 
 function buildCapabilityNote(plan){
  const r=route(plan);
  return [
-  'ORACLE ACTIVE SKILLS:',
+  'ORACLE PLANNED SKILLS:',
   ...r.abilities.map(a=>'- '+a.engine+': '+a.purpose),
-  'These are active responsibilities, not decorative labels. Preserve semantic hard locks.'
+  'These are planned service responsibilities, not proof of runtime availability or fork execution. Preserve semantic hard locks.'
  ].join('\n');
 }
 
