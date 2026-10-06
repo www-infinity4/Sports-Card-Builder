@@ -62,6 +62,7 @@ function choose(state){
 function compile(state,freeform=''){
  const s=state?.selections||{}, id=state?.identity||{}, t=choose(state);
  const title=id.title||state?.detected?.title||'';
+ const context=id.context||state?.detected?.context||'';
  const brand=id.brand||'';
  const logo=id.logoText||'';
  const lines=[
