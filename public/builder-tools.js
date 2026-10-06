@@ -242,7 +242,7 @@ function compilePrompt(semantics,style,layout,extras={}){
   'grading slab or plastic holder',
   'tabletop scene',
   'fake brand logos',
-  'unreadable decorative pseudo-text',
+  'any generated lettering or pseudo-text',
   'cropped-off card corners or hidden perimeter'
  ];
  return [
