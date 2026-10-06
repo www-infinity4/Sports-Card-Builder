@@ -232,23 +232,16 @@ async function inspectRenderedCardWithCodePhi(renderedBlob){
    method:'POST',
    headers:{'Content-Type':'application/json'},
    body:JSON.stringify({html,query:'Oracle collectible card visual verification'})
-  },35000);
+  },22000);
   const payload=await response.json().catch(()=>({}));
   if(!response.ok||!payload.ok)return null;
 
-  let screenshotVision=null;
   const screenshot=String(payload.inspection?.screenshotDataURI||'');
-  if(screenshot.startsWith('data:image/')){
-   try{
-    const screenshotBlob=await dataURIToBlob(screenshot);
-    screenshotVision=await readUploadedImage(screenshotBlob);
-   }catch{}
-  }
 
   return {
    summary:String(payload.summary||''),
    issues:Array.isArray(payload.issues)?payload.issues.slice(0,20):[],
-   screenshotVision,
+   screenshotVision:null,
    inspection:payload.inspection?{
     consoleErrors:payload.inspection.consoleErrors||[],
     pageErrors:payload.inspection.pageErrors||[],
@@ -308,8 +301,9 @@ Return ONLY JSON:
 Rules:
 - Judge this finished render, not a generic template.
 - Treat Code Phi browser errors, broken images and overflow as hard defects.
-- Code Phi screenshot vision is the strongest evidence for what a phone user actually sees.
-- Use the rendered-card vision read and screenshot vision to judge what is visibly present; do not assume requested text or branding actually rendered.
+- Use the rendered-card vision read as the visual truth for the finished card.
+- Use Code Phi browser diagnostics as the truth for mobile overflow, broken images, failed requests and runtime errors.
+- Do not assume requested text or branding actually rendered.
 - Strongly penalize giant dead space, tiny title/logo treatment, generic picture-frame appearance, weak subject scale, awkward crop, unreadable or duplicated text, and collector marks that collide with content.
 - qualityScore is 0-100 for the finished card as actually seen on a phone.
 - blocking=true ONLY for a clear major defect that should be repaired before presenting the final card: broken/missing image, severe crop, giant unintended dead space, generic empty-frame output, illegible/garbled dominant text, or a major collision.
@@ -403,8 +397,9 @@ async function finishOutput(out,{review=true,display=true}={}){
 async function iterateFinishedCardOnce(finished,{allowRepair=true}={}){
  let critique=await updateReviewPanel(finished).catch(()=>null);
  const score=Number(critique?.qualityScore);
+ const blocking=critique?.blocking===true||String(critique?.blocking||'').toLowerCase()==='true';
  const shouldRepair=Boolean(
-  allowRepair&&critique?.blocking&&String(critique?.repairInstruction||'').trim()&&
+  allowRepair&&blocking&&String(critique?.repairInstruction||'').trim()&&
   (!Number.isFinite(score)||score<72)
  );
  if(!shouldRepair)return {finished,critique,repaired:false};
@@ -451,8 +446,8 @@ async function generateFromPlan(kind='single',count=1,instruction=''){
   stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
   const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
   stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
-  await showResult(results.length-1,{review:false});
  }
+ if(results.length)await showResult(results.length-1,{review:false});
  $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 }
 
@@ -1650,13 +1645,14 @@ async function createCard(count=1,mode='original'){
    stage('render','done');
    stage('finish','active','Adding card text and collector details…');
    await nextPaint();
-   const finished=await finishOutput(out,{review:false});
+   const finished=await finishOutput(out,{review:false,display:false});
    stage('finish','done');
    stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
-   const reviewed=await updateReviewPanel(finished).catch(()=>false);
-   stage('iterate','done',reviewed?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
+   const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
+   stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
   }
 
+  if(results.length)await showResult(results.length-1,{review:false});
   $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 
   // Keep the first successful card stable. Any deeper sports-data enrichment is user-triggered later,
