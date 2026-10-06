@@ -56,6 +56,23 @@ How it works (`public/auto-card.js`):
 
 Cards carry the product's own brand mark (`INFINITY` by default; set **Brand** in the identity fields to change it). The design follows modern flagship / chrome / heritage / NOW card conventions but does not reproduce Topps, Panini or MLB trademarks or logos.
 
+## Photo cards: sports, movies and TV shows
+
+Upload a photo and the AI reader is told to read **everything** in it (all text, logos, numbers, credits, card-maker marks and years). GPT then fills short fields that match the card layout:
+
+| Field | Printed where | Sports | Movie / TV |
+| --- | --- | --- | --- |
+| Brand spot | top corner | card maker / league / team (Topps, Yankees) | studio or franchise (MGM, Batman, HBO) |
+| Name / title | lower-right name plate | player name | character or actor name |
+| Team / movie / show | under the name | team | movie or show title |
+| 1/1 | lower right, gold foil | ✔ | ✔ |
+
+The image search (SearXNG through the Cloudflare worker) now runs several queries (exact text, identity fields, visual keywords) and compares up to 10 result images with the upload before using their data.
+
+### Template database
+
+`public/card-template-db.js` holds 60+ card designs by maker and year — Topps (1952 → 2026, Chrome, Now, Heritage, Stadium Club), Bowman, Upper Deck, Donruss, Fleer, Score, Leaf, Panini, plus movie and TV sets (Star Wars, Batman, Marvel, Star Trek, X-Files…). Pick one under **Template**, or leave **Auto match** to choose from your text or the card maker/year GPT reads in the image (`1987 topps`, `donruss diamond kings`, `1989 batman`). For the chosen template the app searches online for real example images and caches them in the browser (`localStorage`, 7 days) as reference data for the design plan. Designs are described in words only; no logos or trademarks are copied.
+
 ## Test
 
 ```bash

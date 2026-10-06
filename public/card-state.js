@@ -2,10 +2,12 @@
 'use strict';
 
 const defaults={
- detected:{title:'',subjectType:'',brand:'',logo:'',era:'',date:'',keywords:[]},
+ detected:{title:'',subjectType:'',brand:'',logo:'',era:'',date:'',keywords:[],category:'',cardMaker:'',cardYear:''},
  selections:{
   border:'white',
   style:'flagship',
+  template:'auto',
+  category:'auto',
   finish:'paper',
   signature:'none',
   oneOfOne:true,

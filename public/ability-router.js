@@ -6,15 +6,15 @@ const ABILITIES={
   id:'image_reader',
   engine:'Gemma 4 26B',
   runtime:'Cloudflare Workers AI',
-  tasks:['ocr','visual-semantics','objects','era-clues','media-clues'],
-  purpose:'Reads the exact uploaded image twice, with an OCR-first audit pass.'
+  tasks:['full-image-read','ocr','logos','visual-semantics','objects','era-clues','media-clues','category','card-maker-year'],
+  purpose:'Reads everything in the exact uploaded image (all text, logos, numbers, credits, card maker and year), with an OCR-first audit pass.'
  },
  web_context:{
   id:'web_context',
   engine:'Orange Brook / SearXNG',
   runtime:'Cloudflare container',
-  tasks:['exact-ocr-image-search','visual-result-comparison','context-corroboration'],
-  purpose:'Searches SearXNG Images from literal OCR, then visually compares returned images with the upload before using their context.'
+  tasks:['exact-ocr-image-search','multi-query-image-search','visual-result-comparison','context-corroboration','template-reference-images'],
+  purpose:'Searches SearXNG Images with several queries (literal OCR, identity fields, visual keywords), visually compares returned images with the upload, and collects reference images for the chosen card template.'
  },
  manager:{
   id:'manager',
@@ -34,8 +34,8 @@ const ABILITIES={
   id:'exact_typography',
   engine:'Exact text compositor',
   runtime:'browser',
-  tasks:['title','context','series','date','collector-mark'],
-  purpose:'Adds verified text after image generation so names are spelled exactly.'
+  tasks:['brand-spot','lower-right-name-plate','context','series','date','foil-1/1'],
+  purpose:'Adds verified text after image generation: brand spot, lower-right name plate and a strong foil 1/1, spelled exactly.'
  },
  auto_card:{
   id:'auto_card',
@@ -57,7 +57,7 @@ function route(build={}){
  const raw=String(build?.semantics?.raw||'').toLowerCase();
  const pipeline=['image_reader','web_context','manager','image_generation','exact_typography','browser_critic'];
  return {
-  version:'2026.10.06.2',
+  version:'2026.10.06.3',
   pipeline,
   abilities:pipeline.map(id=>ABILITIES[id]),
   optional:/reference|build like|use this card/.test(raw)?['reference-conditioning']:[],

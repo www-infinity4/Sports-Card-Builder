@@ -71,8 +71,8 @@ button,textarea{font:inherit}
 .identityActions{display:flex;gap:7px;flex-wrap:wrap}
 .inlineFields{display:none;grid-template-columns:1fr 1fr;gap:8px;padding:10px;border-radius:16px;border:1px solid #d7e0e7;background:rgba(255,255,255,.55)}
 .inlineFields.open{display:grid}
-.inlineFields label{display:grid;gap:4px;font-size:.69rem;font-weight:900;color:#7b8691;text-transform:uppercase;letter-spacing:.06em}
-.inlineFields input{width:100%;border:1px solid #cbd5dd;border-radius:11px;background:#fff;color:#17202a;padding:9px 10px;font:inherit;font-size:.85rem;outline:none}
+.inlineFields label{display:grid;gap:4px;font-size:.69rem;font-weight:900;color:#3f4c58;text-transform:uppercase;letter-spacing:.06em}
+.inlineFields input,.inlineFields select{width:100%;border:2px solid #4a5866;border-radius:11px;background:#fff;color:#17202a;padding:9px 10px;font:inherit;font-size:.85rem;outline:none}
 .inlineFields .wide{grid-column:1/-1}
 .builderSummary{padding:9px 11px;border-radius:14px;background:rgba(226,236,244,.7);color:#586572;font-size:.78rem;line-height:1.4;border:1px solid #d2dde5}
 .readerIdeas{display:none;gap:7px;flex-wrap:wrap}
@@ -80,8 +80,9 @@ button,textarea{font:inherit}
 
 .promptWrap{min-width:0;margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec}
 .promptLabel{font-size:.75rem;font-weight:900;color:#778391;margin:0 0 7px}
-textarea{width:100%;min-height:112px;border:0;outline:0;background:transparent;color:#14191f;resize:vertical;line-height:1.48;padding:0;font-size:1rem}
-textarea::placeholder{color:#7e8894;opacity:.82}
+textarea{width:100%;min-height:96px;border:2px solid #4a5866;border-radius:14px;outline:0;background:#fff;color:#14191f;resize:vertical;line-height:1.48;padding:10px 12px;font-size:1rem}
+textarea:focus,.inlineFields input:focus,.inlineFields select:focus{border-color:#1d2731;box-shadow:0 0 0 3px rgba(29,39,49,.14)}
+textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
 .composerBottom{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec}.createGroup{display:flex;gap:8px;flex-wrap:wrap}.secondaryBtn{border:1px solid #c7d1da;border-radius:17px;padding:12px 14px;background:rgba(255,255,255,.62);color:#4f5b67;font-weight:900;cursor:pointer}.secondaryBtn:disabled{opacity:.5;cursor:default}
 .createBtn{border:1px solid #bec9d3;border-radius:17px;padding:13px 18px;background:
  linear-gradient(135deg,#fff,#dfeaf3 52%,#f7fbfe);color:#11161c;font-weight:950;cursor:pointer;box-shadow:0 10px 24px rgba(67,80,94,.12),inset 0 1px 0 #fff}
@@ -232,11 +233,13 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button id="editSeriesBtn" class="choiceBtn" type="button">Details</button>
       </div>
       <div id="customFields" class="inlineFields open">
-       <label class="wide">Title / subject<input id="cardTitleInput" type="text" placeholder="GPT fills this from the uploaded image"></label>
-       <label class="wide">Context<input id="cardContextInput" type="text" placeholder="Team, movie, event, product, band, location, or other context"></label>
-       <label>Brand / logo text<input id="cardBrandInput" type="text" placeholder="GPT fills when supported"></label>
-       <label>Series / type<input id="cardSeriesInput" type="text" placeholder="GPT fills or suggests a useful card type"></label>
-       <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="GPT fills when visible or inferable"></label>
+       <label>Card type<select id="cardCategorySelect"><option value="auto">Auto</option><option value="sports">Sports</option><option value="movie">Movie</option><option value="tv">TV show</option></select></label>
+       <label>Template<select id="cardTemplateSelect"><option value="auto">Auto match</option></select></label>
+       <label class="wide">Name / title (lower right)<input id="cardTitleInput" type="text" placeholder="Player, character or title"></label>
+       <label class="wide">Team / movie / show<input id="cardContextInput" type="text" placeholder="e.g. Yankees, The Dark Knight"></label>
+       <label>Brand spot<input id="cardBrandInput" type="text" placeholder="e.g. Topps, MGM, Batman"></label>
+       <label>Series<input id="cardSeriesInput" type="text" placeholder="e.g. Chrome"></label>
+       <label class="wide">Year<input id="cardDateInput" type="text" placeholder="e.g. 1987"></label>
        <input id="cardLogoInput" type="hidden">
       </div>
       <div id="readerIdeas" class="readerIdeas" aria-label="Image reader suggestions"></div>
@@ -246,8 +249,8 @@ textarea::placeholder{color:#7e8894;opacity:.82}
      <div id="builderSummary" class="builderSummary">Auto build: white-border flagship card · paper stock · no signature · automatic 1/1.</div>
     </div>
     <div class="promptWrap">
-     <div class="promptLabel">Tell GPT what you want changed</div>
-     <textarea id="message" placeholder="Optional. Auto Card: “Aaron Judge chrome gold auto /50”, “Orioles &quot;6-Run First Inning&quot; now”, “rookie superfractor”. Photo cards: make this a bold 1989 baseball card, keep the face exact."></textarea>
+     <div class="promptLabel">Changes (optional)</div>
+     <textarea id="message" placeholder="Optional, e.g. 1987 Topps, gold 1/1"></textarea>
     </div>
     <div class="composerBottom">
      <div class="createGroup">
@@ -262,7 +265,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <input id="photo" type="file" accept="image/*" multiple hidden aria-hidden="true" tabindex="-1">
     <input id="referencePhoto" type="file" accept="image/*" hidden aria-hidden="true" tabindex="-1">
    </div>
-   <div id="status" class="status">Tap ⚡ Auto Card for an instant finished card, or upload a photo to build from it.</div>
+   <div id="status" class="status">Upload a photo or tap ⚡ Auto Card.</div>
    <div id="skillsPanel" class="skillsPanel" aria-label="Active Oracle skills"></div>
    <div id="smartIdeas" class="smartIdeas" aria-label="Oracle suggestions"></div>
   </section>
@@ -273,7 +276,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <div id="sideSwitch" class="sideSwitch"><button id="frontSide" class="sideBtn active" type="button">Front</button><button id="backSide" class="sideBtn" type="button">Back</button></div>
    </div>
    <div class="canvas">
-    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Tap ⚡ Auto Card for a finished front and back with no input. Optional: type a player, set or parallel (e.g. “Aaron Judge chrome gold auto”) or upload a photo to steer it.</div></div>
+    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload a photo or tap ⚡ Auto Card.</div></div>
     <div id="buildMonitor" class="buildMonitor" aria-live="polite">
      <div class="buildTitle">Building your card</div>
      <div class="buildSteps">
@@ -305,14 +308,15 @@ textarea::placeholder{color:#7e8894;opacity:.82}
   </section>
  </main>
 </div>
-<script src="./public/card-state.js?v=20261005-2"></script>
+<script src="./public/card-state.js?v=20261006-3"></script>
 <script src="./public/card-numbering.js?v=20261005-1"></script>
 <script src="./public/card-templates.js?v=20261005-4"></script>
+<script src="./public/card-template-db.js?v=20261006-1"></script>
 <script src="./public/card-back.js?v=20261005-1"></script>
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261006-4"></script>
-<script src="./public/ability-router.js?v=20261006-3"></script>
+<script src="./public/ability-router.js?v=20261006-4"></script>
 <script src="./public/auto-card.js?v=20261006-1"></script>
-<script src="./public/app.js?v=20261006-55"></script>
+<script src="./public/app.js?v=20261006-56"></script>
 </body>
 </html>
