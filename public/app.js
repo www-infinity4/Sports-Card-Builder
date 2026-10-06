@@ -256,17 +256,126 @@ async function generateFromPlan(kind='single',count=1){
  $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 }
 
+
+async function autoCropDominantImage(file){
+ if(!file)return {blob:null,cropped:false,box:null};
+ const bitmap=await createImageBitmap(file);
+ const ow=bitmap.width,oh=bitmap.height;
+ const maxDim=256,scale=Math.min(1,maxDim/Math.max(ow,oh));
+ const w=Math.max(32,Math.round(ow*scale)),h=Math.max(32,Math.round(oh*scale));
+ const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+ const ctx=canvas.getContext('2d',{willReadFrequently:true,alpha:false});
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(bitmap,0,0,w,h);
+ const data=ctx.getImageData(0,0,w,h).data;
+ const tile=Math.max(6,Math.round(Math.min(w,h)/28));
+ const cols=Math.ceil(w/tile),rows=Math.ceil(h/tile);
+ const active=new Uint8Array(cols*rows);
+ const score=new Float32Array(cols*rows);
+
+ function tileStats(tx,ty){
+  const x0=tx*tile,y0=ty*tile,x1=Math.min(w,x0+tile),y1=Math.min(h,y0+tile);
+  let n=0,sum=0,sum2=0,sat=0,edges=0,prev=-1;
+  for(let y=y0;y<y1;y+=2){
+   for(let x=x0;x<x1;x+=2){
+    const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2];
+    const lum=.299*r+.587*g+.114*b;
+    sum+=lum;sum2+=lum*lum;n++;
+    const mx=Math.max(r,g,b),mn=Math.min(r,g,b);sat+=mx-mn;
+    if(prev>=0)edges+=Math.abs(lum-prev);prev=lum;
+   }
+  }
+  const mean=sum/Math.max(1,n),variance=Math.max(0,sum2/Math.max(1,n)-mean*mean);
+  const std=Math.sqrt(variance),avgSat=sat/Math.max(1,n),avgEdge=edges/Math.max(1,n-1);
+  return {std,avgSat,avgEdge,mean};
+ }
+
+ for(let ty=0;ty<rows;ty++){
+  for(let tx=0;tx<cols;tx++){
+   const st=tileStats(tx,ty),idx=ty*cols+tx;
+   const texture=st.std*1.25+st.avgSat*.22+st.avgEdge*.32;
+   score[idx]=texture;
+   const photoLike=texture>24 || (st.std>15&&st.avgSat>18) || (st.std>21&&st.avgEdge>10);
+   const blankish=(st.mean>242&&st.std<8)||(st.mean<15&&st.std<8);
+   active[idx]=photoLike&&!blankish?1:0;
+  }
+ }
+
+ // Bridge tiny gaps so one photo is not split by highlights or dark clothing.
+ const bridged=new Uint8Array(active);
+ for(let ty=1;ty<rows-1;ty++)for(let tx=1;tx<cols-1;tx++){
+  const idx=ty*cols+tx;if(active[idx])continue;
+  let neighbors=0;
+  for(let yy=-1;yy<=1;yy++)for(let xx=-1;xx<=1;xx++)if(xx||yy)neighbors+=active[(ty+yy)*cols+(tx+xx)];
+  if(neighbors>=5)bridged[idx]=1;
+ }
+
+ const seen=new Uint8Array(cols*rows);
+ let best=null;
+ const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+ for(let ty=0;ty<rows;ty++)for(let tx=0;tx<cols;tx++){
+  const start=ty*cols+tx;if(!bridged[start]||seen[start])continue;
+  const stack=[[tx,ty]];seen[start]=1;
+  let minX=tx,maxX=tx,minY=ty,maxY=ty,count=0,totalScore=0;
+  while(stack.length){
+   const [cx,cy]=stack.pop(),idx=cy*cols+cx;
+   count++;totalScore+=score[idx];minX=Math.min(minX,cx);maxX=Math.max(maxX,cx);minY=Math.min(minY,cy);maxY=Math.max(maxY,cy);
+   for(const [dx,dy] of dirs){
+    const nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=cols||ny>=rows)continue;
+    const ni=ny*cols+nx;if(bridged[ni]&&!seen[ni]){seen[ni]=1;stack.push([nx,ny]);}
+   }
+  }
+  const bw=(maxX-minX+1)*tile,bh=(maxY-minY+1)*tile;
+  const area=bw*bh,areaRatio=area/(w*h),density=count/Math.max(1,(maxX-minX+1)*(maxY-minY+1));
+  const componentScore=area*(.55+.45*density)*(1+Math.min(1,totalScore/Math.max(1,count)/80));
+  if(areaRatio>.08&&(!best||componentScore>best.componentScore))best={minX,maxX,minY,maxY,areaRatio,density,componentScore};
+ }
+
+ if(!best){
+  if(bitmap.close)bitmap.close();
+  return {blob:file,cropped:false,box:null};
+ }
+
+ let x0=Math.max(0,best.minX*tile-tile),y0=Math.max(0,best.minY*tile-tile);
+ let x1=Math.min(w,(best.maxX+1)*tile+tile),y1=Math.min(h,(best.maxY+1)*tile+tile);
+ let cropW=x1-x0,cropH=y1-y0;
+ const ratio=(cropW*cropH)/(w*h);
+
+ // If the dominant image already fills most of the upload, keep the original.
+ if(ratio>.82 || cropW<Math.min(90,w*.28) || cropH<Math.min(90,h*.28)){
+  if(bitmap.close)bitmap.close();
+  return {blob:file,cropped:false,box:null};
+ }
+
+ const sx=Math.max(0,Math.round(x0/scale)),sy=Math.max(0,Math.round(y0/scale));
+ const sw=Math.min(ow-sx,Math.round(cropW/scale)),sh=Math.min(oh-sy,Math.round(cropH/scale));
+ const out=document.createElement('canvas');out.width=sw;out.height=sh;
+ const ox=out.getContext('2d',{alpha:false});ox.fillStyle='#fff';ox.fillRect(0,0,sw,sh);
+ ox.drawImage(bitmap,sx,sy,sw,sh,0,0,sw,sh);
+ if(bitmap.close)bitmap.close();
+ const blob=await new Promise((resolve,reject)=>out.toBlob(b=>b?resolve(b):reject(new Error('auto_crop_failed')),'image/jpeg',.96));
+ return {blob,cropped:true,box:{x:sx,y:sy,width:sw,height:sh,sourceWidth:ow,sourceHeight:oh}};
+}
+
+async function prepareUploadedImage(file){
+ try{return await autoCropDominantImage(file)}
+ catch{return {blob:file,cropped:false,box:null}}
+}
+
 function openPicker(){ $('photo').click(); }
-function setPhoto(file){
- sourceFile=file||null;
+async function setPhoto(file){
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
- if(!sourceFile){
+ if(!file){
+  sourceFile=null;
   $('thumb').removeAttribute('src');$('thumb').style.display='none';$('thumbText').style.display='grid';
   $('thumbControls').style.display='none';$('photo').value='';$('status').textContent='Tap the photo tile to begin.';return;
  }
+ $('status').textContent='Finding the main image and cropping away the page…';
+ const prepared=await prepareUploadedImage(file);
+ sourceFile=prepared.blob||file;
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
- $('thumbControls').style.display='flex';$('status').textContent='Photo ready. Choose buttons or tap Create Card immediately.';
+ $('thumbControls').style.display='flex';
+ $('status').textContent=prepared.cropped?'Main image found and cropped automatically.':'Photo ready. Choose buttons or tap Create Card immediately.';
 }
 $('photo').addEventListener('change',e=>setPhoto(e.target.files?.[0]||null));
 $('thumbBox').addEventListener('click',e=>{if(!e.target.closest('button'))openPicker()});
@@ -279,17 +388,21 @@ $('composer').addEventListener('drop',e=>{const f=[...(e.dataTransfer?.files||[]
 
 
 function openReferencePicker(){ $('referencePhoto').click(); }
-function setReference(file){
- referenceFile=file||null;
+async function setReference(file){
  if(referencePreviewUrl){URL.revokeObjectURL(referencePreviewUrl);referencePreviewUrl=''}
- if(!referenceFile){
+ if(!file){
+  referenceFile=null;
   $('referenceThumb').removeAttribute('src');$('referenceThumb').style.display='none';$('referenceText').style.display='grid';
   $('referenceControls').style.display='none';$('referencePhoto').value='';
   return;
  }
+ $('status').textContent='Finding the reference card inside the upload…';
+ const prepared=await prepareUploadedImage(file);
+ referenceFile=prepared.blob||file;
  referencePreviewUrl=URL.createObjectURL(referenceFile);
  $('referenceThumb').src=referencePreviewUrl;$('referenceThumb').style.display='block';$('referenceText').style.display='none';
- $('referenceControls').style.display='flex';$('status').textContent='Reference card ready. Add a subject and tell Oracle what to carry over.';
+ $('referenceControls').style.display='flex';
+ $('status').textContent=prepared.cropped?'Reference image cropped automatically.':'Reference card ready.';
 }
 $('referencePhoto').addEventListener('change',e=>setReference(e.target.files?.[0]||null));
 $('referenceBox').addEventListener('click',e=>{if(!e.target.closest('button'))openReferencePicker()});
