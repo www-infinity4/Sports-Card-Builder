@@ -38,6 +38,8 @@ let currentSide='front';
 let selectedImageFiles=[];
 let selectedImageIndex=-1;
 let photoReadGeneration=0;
+let imageReadPromise=Promise.resolve();
+let imageReadState='idle';
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -696,26 +698,51 @@ function renderImageTray(files){
  tray.classList.toggle('visible',selectedImageFiles.length>1);
 }
 function openPicker(){ $('photo').click(); }
+
+function resetImageDataForNewSource(){
+ const s=state();
+ if(s.detected)s.detected={title:'',subjectType:'',brand:'',logo:'',context:'',era:'',date:'',keywords:[]};
+ if(s.identity){
+  for(const key of ['title','brand','logoText','context','series','dateText','cardNumber'])s.identity[key]='';
+ }
+ for(const id of ['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput']){
+  if($(id))$(id).value='';
+ }
+ lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';
+}
+
+function setCreateAvailability(ready,label='Create Card'){
+ if($('make')){$('make').disabled=!ready;$('make').textContent=label}
+}
+
 async function setPhoto(file){
  const generation=++photoReadGeneration;
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
  if(!file){
   sourceFile=null;
+  imageReadState='idle';imageReadPromise=Promise.resolve();
+  setCreateAvailability(false);
+  resetImageDataForNewSource();
   $('thumb').removeAttribute('src');$('thumb').style.display='none';$('thumbText').style.display='grid';
   $('thumbControls').style.display='none';$('photo').value='';$('status').textContent='Tap the photo tile to begin.';return;
  }
 
- // Lock the exact uploaded file immediately. Do not crop, resize, reinterpret, or
- // wait for AI before allowing Create/preview to use it.
+ // A replacement photo starts a fresh factual read. Never let identity/context
+ // from the previous upload leak into the new card.
+ resetImageDataForNewSource();
+
+ // Lock the exact uploaded file immediately for preview and rendering.
  sourceFile=file;
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
+ imageReadState='reading';
+ setCreateAvailability(false,'Reading image…');
  $('status').textContent='Image uploaded. GPT is reading it and filling the card data…';
 
- // Image understanding is enrichment only. It starts immediately after upload,
- // fills whatever fields it can verify, and must never block Create.
- Promise.resolve().then(async()=>{
+ // The first build waits for this read so the renderer cannot race ahead with
+ // blank or stale fields. A read failure still leaves the user able to create.
+ imageReadPromise=(async()=>{
   try{
    const visionRaw=await readUploadedImage(file).catch(()=>null);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
@@ -724,7 +751,6 @@ async function setPhoto(file){
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    applyVisionResult(vision);
 
-   // Context lookup can be slower; run it after the first prefills are already visible.
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
    const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
    $('status').textContent=scanBits.length
@@ -738,9 +764,14 @@ async function setPhoto(file){
    }).catch(()=>{});
   }catch{
    if(generation!==photoReadGeneration||sourceFile!==file)return;
-   $('status').textContent='Photo loaded. Image reading was unavailable, but Create is ready.';
+   $('status').textContent='Photo loaded. Image reading was unavailable; you can fill anything missing and create.';
+  }finally{
+   if(generation===photoReadGeneration&&sourceFile===file){
+    imageReadState='ready';
+    setCreateAvailability(true);
+   }
   }
- });
+ })();
 }
 
 $('photo').addEventListener('change',async e=>{
@@ -1362,9 +1393,19 @@ async function nextPaint(){
 }
 
 async function createCard(count=1,mode='original'){
- const freeform=$('message').value.trim();
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
+
+ // Do not race the image reader. The first render should use the data that
+ // appeared in the fields, not a blank snapshot captured milliseconds earlier.
+ if(imageReadState==='reading'){
+  $('status').textContent='Finishing the image read before building…';
+  await Promise.race([
+   imageReadPromise.catch(()=>{}),
+   new Promise(resolve=>setTimeout(resolve,12000))
+  ]);
+ }
+ const freeform=$('message').value.trim();
 
  setBusy(true,count===3?'Creating 3…':'Creating…');
  $('status').textContent='Building your card…';
