@@ -329,16 +329,10 @@ async function updateReviewPanel(src=''){
  back.style.display=state().selections.buildBack?'inline-block':'none';
 
  if(!review.complete){
-  status.innerHTML='<strong>Auto Build is finishing the card identity.</strong> The image reader will supply the title and brand treatment.';
-  primary.textContent='Re-read Image';
-  primary.dataset.action='reread';
-  primary.dataset.instruction='';
-  layout.style.display='none';
-  variation.style.display='none';
-  return;
+  status.innerHTML='<strong>Oracle is reviewing this exact card while image identity finishes…</strong>';
+ }else{
+  status.innerHTML='<strong>Oracle is reviewing this exact card…</strong>';
  }
-
- status.innerHTML='<strong>Oracle is reviewing this exact card…</strong>';
  primary.textContent='Improve Style';primary.dataset.action='style';primary.dataset.instruction='';
  layout.textContent='Improve Layout';layout.dataset.action='layout';layout.dataset.instruction='';layout.style.display='inline-block';
  variation.textContent='New Variation';variation.dataset.action='variation';variation.dataset.instruction='';variation.style.display='inline-block';
@@ -883,7 +877,7 @@ async function setPhoto(file){
  imageReadState='reading';
  setCreateAvailability(true,'Create Card');
  if($('retryReadBtn'))$('retryReadBtn').style.display='none';
- $('status').textContent='Image uploaded. GPT is reading it and filling the card data. You can create now or wait for the read.';
+ $('status').textContent='Image uploaded. GPT is reading it and filling the card data. Create Card will wait for this read before planning.';
 
  // The first build waits for this read so the renderer cannot race ahead with
  // blank or stale fields. A read failure still leaves the user able to create.
@@ -1472,17 +1466,22 @@ async function createCard(count=1,mode='original'){
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
 
- // Do not race the image reader. The first render should use the data that
- // appeared in the fields, not a blank snapshot captured milliseconds earlier.
- // Create is independent from Retry Read. Use whatever verified fields are currently available.
- // A background image read may continue and improve the fields for the next build.
+ // Do not race the image reader. The first render must use the data extracted
+ // from this exact upload, especially visible text such as a band/product/team name.
  const freeform=$('message').value.trim();
 
  setBusy(true,count===3?'Creating 3…':'Creating…');
- $('status').textContent='Building your card…';
+ $('status').textContent='Finishing image read before the card plan…';
  showMonitor();
 
  try{
+  if(imageReadState==='reading'&&imageReadPromise){
+   stage('prepare','active','Reading the exact uploaded image and visible text first…');
+   await Promise.race([
+    imageReadPromise,
+    new Promise(resolve=>setTimeout(resolve,22000))
+   ]);
+  }
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
 
   stage('prepare','active','Using the exact uploaded image…');
