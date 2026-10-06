@@ -1022,9 +1022,6 @@ async function renderCard(blob,prompt,description,designBlob=null){
    console.warn('Comfy renderer unavailable:',comfyError);
   }
  }
- const s=state();
- const exactFlagship=!designBlob&&s.selections.border==='white'&&s.selections.style==='flagship'&&['paper','matte','gloss'].includes(s.selections.finish);
- if(exactFlagship)return renderExactWhiteFlagship(blob);
  const form=new FormData();
  form.append('image',blob,'subject.jpg');
  if(designBlob)form.append('design_reference',designBlob,'design-reference.jpg');
