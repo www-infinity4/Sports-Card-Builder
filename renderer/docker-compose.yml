@@ -1,0 +1,34 @@
+services:
+  comfy:
+    build:
+      context: ..
+      dockerfile: renderer/Dockerfile.comfy
+    ports:
+      - "8188:8188"
+    volumes:
+      - ./models:/opt/ComfyUI/models
+      - ./output:/opt/ComfyUI/output
+      - ./input:/opt/ComfyUI/input
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  oracle-api:
+    build:
+      context: ..
+      dockerfile: renderer/Dockerfile.api
+    depends_on:
+      - comfy
+    ports:
+      - "3000:3000"
+    environment:
+      ORACLE_COMFY_URL: http://comfy:8188
+      ORACLE_FLUX_UNET: ${ORACLE_FLUX_UNET:-flux1-dev-fp8.safetensors}
+      ORACLE_FLUX_CLIP_L: ${ORACLE_FLUX_CLIP_L:-clip_l.safetensors}
+      ORACLE_FLUX_T5: ${ORACLE_FLUX_T5:-t5xxl_fp16.safetensors}
+      ORACLE_FLUX_VAE: ${ORACLE_FLUX_VAE:-ae.safetensors}
+      ORACLE_COMFY_TIMEOUT_MS: ${ORACLE_COMFY_TIMEOUT_MS:-180000}
