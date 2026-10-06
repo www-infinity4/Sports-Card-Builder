@@ -1501,7 +1501,8 @@ async function buildAction(kind,instruction=''){
   if(results.length)await showResult(activeResult>=0?activeResult:results.length-1);
  }finally{setBusy(false)}
 }
-$('retryReadBtn')?.addEventListener('click',retryCurrentImageRead);\n$('make').addEventListener('click',()=>createCard(1,'original'));
+$('retryReadBtn')?.addEventListener('click',retryCurrentImageRead);
+$('make').addEventListener('click',()=>createCard(1,'original'));
 $('buildLike').addEventListener('click',()=>createCard(1,'reference'));
 $('make3').addEventListener('click',()=>createCard(3,referenceFile?'reference':'original'));
 $('retryBtn').addEventListener('click',async()=>{
