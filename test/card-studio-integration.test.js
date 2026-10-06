@@ -71,6 +71,13 @@ test('nested caller identity and evidence survive the upload reset',async()=>{
  assert.equal(identity.logoText,'');
  assert.equal(context.cardEvidence.description,'Supported description');
 });
+test('resolved caller evidence synchronizes the exact front identity',async()=>{
+ const {adapter,identity}=adapterHarness();
+ await adapter.build({input:{image:new Blob(),evidence:{
+  title:'Stronger printed title',provenance:{title:{value:'Stronger printed title',confidence:96,source:'visible-text'}}
+ }}});
+ assert.equal(identity.title,'Stronger printed title');
+});
 test('CardData capture does not promote interpreted lastVision to original reader evidence',()=>{
  let received;
  const context=vm.createContext({

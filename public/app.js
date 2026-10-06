@@ -2346,7 +2346,7 @@ async function autoCreate(count=1,{append=false}={}){
    stage('finish','done');
    stage('iterate','done','Card '+(i+1)+' finished: '+out.spec.value.tier+'.');
    results.push(out.front);
-   if(CARD_DATA_STREAM&&CARD_STUDIO){
+   if(CARD_DATA_STREAM?.build&&CARD_STUDIO?.recordArtifact&&CARD_BACK?.formatFor&&CARD_BACK?.render){
     const data=CARD_DATA_STREAM.build({intel:out.intel,
      userOverrides:{title:out.spec.title,subject:out.spec.player?.name||out.spec.title,category:'sports'},
      cardNumber:CARD_NUMBERING?.number(out.spec.title,results.length)||String(results.length),
@@ -2441,6 +2441,9 @@ if(CARD_STUDIO)CARD_STUDIO.configure({
    if(request.referenceImage)await setReference(request.referenceImage);
    const overrides=studioRequest.userOverrides;
    const identityFields={title:'title',brand:'brand',context:'context',series:'series',date:'dateText',cardNumber:'cardNumber'};
+   for(const [field,identityField] of Object.entries(identityFields)){
+    if(cardEvidence?.provenance?.[field])CARD_STATE?.setIdentity(identityField,cardEvidence[field]);
+   }
    for(const [field,entry] of Object.entries(overrides)){
     const value=entry&&typeof entry==='object'?entry.value:entry;
     if(CARD_EVIDENCE?.FIELDS.includes(field))cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,field,value);
