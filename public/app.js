@@ -1455,7 +1455,7 @@ async function setPhoto(file){
    pipelineProgress('templateSelected','complete');
    pipelineProgress('designSpec','complete');
    $('status').textContent=imageComparison?.compared
-    ?'SearXNG image comparison finished. GPT is organizing the verified fields…'
+    ?'Image comparison finished. GPT is organizing the verified fields…'
     :webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
 
    let vision={};
