@@ -13,8 +13,8 @@ const ABILITIES={
   id:'web_context',
   engine:'Orange Brook / SearXNG',
   runtime:'Cloudflare container',
-  tasks:['exact-ocr-search','context-corroboration'],
-  purpose:'Searches literal visible text first, then corroborates image context.'
+  tasks:['exact-ocr-image-search','visual-result-comparison','context-corroboration'],
+  purpose:'Searches SearXNG Images from literal OCR, then visually compares returned images with the upload before using their context.'
  },
  manager:{
   id:'manager',
