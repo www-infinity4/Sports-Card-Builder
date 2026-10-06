@@ -321,16 +321,11 @@ function variationPrompt(plan,kind,index=0,instruction=''){
 
 async function generateFromPlan(kind='single',count=1,instruction=''){
  if(!lastBlob||!lastPlan||!lastDescription)throw new Error('missing_build_state');
- if(BUILDER){
-  const tp=lastPlan.toolSpec||lastToolPlan||BUILDER.buildToolPlan(lastDescription);
-  const check=BUILDER.validatePlan(lastPlan,tp.semantics);
-  if(!check.ok)lastPlan=BUILDER.normalizeAIPlan(lastPlan,tp);
- }
+ // Exact-source mode must never be blocked by planner/validator failures.
  for(let i=0;i<count;i++){
-  stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Rendering through Oracle’s best available engine…');
-  const basePrompt=kind==='single'?lastPlan.renderPrompt:variationPrompt(lastPlan,kind,i,instruction);
-  const prompt=ABILITY_ROUTER&&lastToolPlan?basePrompt+'\n\n'+ABILITY_ROUTER.buildCapabilityNote({...lastToolPlan,mode:buildMode}):basePrompt;
-  const out=await renderCard(lastBlob,prompt,lastDescription,lastReferenceBlob);
+  stage('render','active',count>1?'Rendering variation '+(i+1)+' of '+count+'…':'Building the card from your exact image…');
+  const basePrompt=kind==='single'?(lastPlan.renderPrompt||lastDescription):variationPrompt(lastPlan,kind,i,instruction);
+  const out=await renderCard(lastBlob,basePrompt,lastDescription,lastReferenceBlob);
   stage('render','done');
   stage('finish','active','Finishing…');
   await finishOutput(out);
@@ -1172,27 +1167,38 @@ async function createCard(count=1,mode='original'){
   lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
   buildMode=mode;
   stage('prepare','done');
-  stage('plan','active','Locking your selected card design…');
+  stage('plan','active','Directing design from your selected style…');
   const chosenTitle=state().identity.title||state().detected.title||'';
   const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
   const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
   lastIntent={
    playerQuery:sportsContext?chosenTitle:'',
-   teamQuery:'',
+   teamQuery:state().identity.context||'',
    explicitYear:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'',
    cardType:sportsContext?'sports card':'collectible card',
    subset:'',
    historicalAngle:''
   };
-  try{lastIntel=sportsContext&&chosenTitle?await fetchPlayerIntel(chosenTitle):null}catch{lastIntel=null}
-  lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
-  if(CARD_CRITIC){
-   const check=CARD_CRITIC.inspectSpec(state(),lastPlan?.renderPrompt||'');
-   if(!check.ok&&CARD_TEMPLATES)lastPlan.renderPrompt=builderDescription(freeform)+'\n\n'+lastPlan.renderPrompt;
-  }
+
+  // The preview path is intentionally synchronous and local.
+  // GPT/player lookup can enrich later, but cannot stop the card from being built.
+  lastPlan={
+   era:lastIntent.explicitYear||'user-directed',
+   cardFamily:state().selections.style||'flagship',
+   suggestedYear:lastIntent.explicitYear||'',
+   suggestedCardType:lastIntent.cardType,
+   suggestions:[],
+   backStyle:'Match the selected front style.',
+   renderPrompt:lastDescription
+  };
+  lastToolPlan=null;
+  lastAbilityRoute=null;
   $('smartIdeas').style.display='none';
-  if(ABILITY_ROUTER&&lastToolPlan)lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
-  stage('plan','done',lastAbilityRoute?'Ability route locked: '+lastAbilityRoute.abilities.map(a=>a.engine).join(' → '):lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
+  stage('plan','done','Design locked. Building preview now.');
+
+  if(sportsContext&&chosenTitle){
+   fetchPlayerIntel(chosenTitle).then(v=>{if(v)lastIntel=v}).catch(()=>{});
+  }else lastIntel=null;
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
