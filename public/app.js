@@ -230,15 +230,27 @@ async function inspectRenderedCardWithCodePhi(renderedBlob){
   },35000);
   const payload=await response.json().catch(()=>({}));
   if(!response.ok||!payload.ok)return null;
+
+  let screenshotVision=null;
+  const screenshot=String(payload.inspection?.screenshotDataURI||'');
+  if(screenshot.startsWith('data:image/')){
+   try{
+    const screenshotBlob=await dataURIToBlob(screenshot);
+    screenshotVision=await readUploadedImage(screenshotBlob);
+   }catch{}
+  }
+
   return {
    summary:String(payload.summary||''),
    issues:Array.isArray(payload.issues)?payload.issues.slice(0,20):[],
+   screenshotVision,
    inspection:payload.inspection?{
     consoleErrors:payload.inspection.consoleErrors||[],
     pageErrors:payload.inspection.pageErrors||[],
     failedRequests:payload.inspection.failedRequests||[],
     diagnostics:payload.inspection.diagnostics||{},
-    viewport:payload.inspection.diagnostics?.viewport||null
+    viewport:payload.inspection.diagnostics?.viewport||null,
+    screenshotCaptured:Boolean(screenshot)
    }:null
   };
  }catch{return null}
@@ -269,6 +281,9 @@ ${JSON.stringify(visual||{})}
 CODE PHI CLOUD BROWSER INSPECTION:
 ${JSON.stringify(browserInspection||{})}
 
+CODE PHI SCREENSHOT VISION:
+${JSON.stringify(browserInspection?.screenshotVision||{})}
+
 DESIGN PLAN:
 ${JSON.stringify(lastPlan||{})}
 
@@ -285,7 +300,8 @@ Return ONLY JSON:
 Rules:
 - Judge this finished render, not a generic template.
 - Treat Code Phi browser errors, broken images and overflow as hard defects.
-- Use the rendered-card vision read to judge what is visibly present; do not assume requested text or branding actually rendered.
+- Code Phi screenshot vision is the strongest evidence for what a phone user actually sees.
+- Use the rendered-card vision read and screenshot vision to judge what is visibly present; do not assume requested text or branding actually rendered.
 - Strongly penalize giant dead space, tiny title/logo treatment, generic picture-frame appearance, weak subject scale, awkward crop, unreadable or duplicated text, and collector marks that collide with content.
 - Do not ask the user to fill title, brand, or logo; Auto Build owns those.
 - Preserve exact subject identity and user photo.
