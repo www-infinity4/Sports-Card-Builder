@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 72" width="180" height="72">
+  <defs>
+    <linearGradient id="foil" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7d5a10"/>
+      <stop offset="0.18" stop-color="#f9edb0"/>
+      <stop offset="0.38" stop-color="#c89527"/>
+      <stop offset="0.57" stop-color="#fff4bd"/>
+      <stop offset="0.76" stop-color="#a67616"/>
+      <stop offset="1" stop-color="#f2dda0"/>
+    </linearGradient>
+    <filter id="emboss" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="0.8" flood-color="#241600" flood-opacity=".58"/>
+    </filter>
+  </defs>
+  <text x="90" y="50" text-anchor="middle"
+        font-family="Arial Narrow, Helvetica Neue, Arial, sans-serif"
+        font-size="48" font-weight="800" font-style="italic"
+        letter-spacing="-2"
+        fill="url(#foil)" stroke="#5d4108" stroke-width="1.1"
+        paint-order="stroke fill" filter="url(#emboss)">1/1</text>
+</svg>
