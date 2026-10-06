@@ -48,6 +48,25 @@ button,textarea{font:inherit}
 .photoEmpty .plus{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#f8fbfe;border:1px solid #cbd5df;font-size:1.25rem;line-height:1}
 .photoControls{display:none;position:absolute;right:7px;top:7px;gap:6px;z-index:2}
 .photoControls button{border:0;border-radius:999px;background:rgba(15,20,27,.78);color:#fff;padding:7px 9px;font-size:.7rem;font-weight:850;backdrop-filter:blur(10px);cursor:pointer}
+
+.builderControls{margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec;display:grid;gap:12px}
+.controlBlock{display:grid;gap:7px}
+.controlTitle{font-size:.72rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase;color:#778391}
+.choiceRow{display:flex;gap:7px;flex-wrap:wrap}
+.choiceBtn{border:1px solid #c8d3dc;border-radius:999px;background:rgba(255,255,255,.7);color:#4f5b66;padding:8px 11px;font-size:.78rem;font-weight:900;cursor:pointer}
+.choiceBtn.active{background:#1f2a35;color:#fff;border-color:#1f2a35;box-shadow:0 5px 16px rgba(31,42,53,.15)}
+.choiceBtn[data-tone="premium"].active{background:linear-gradient(135deg,#353c45,#0e1319);color:#fff}
+.choiceBtn:disabled{opacity:.5;cursor:default}
+.identityActions{display:flex;gap:7px;flex-wrap:wrap}
+.inlineFields{display:none;grid-template-columns:1fr 1fr;gap:8px;padding:10px;border-radius:16px;border:1px solid #d7e0e7;background:rgba(255,255,255,.55)}
+.inlineFields.open{display:grid}
+.inlineFields label{display:grid;gap:4px;font-size:.69rem;font-weight:900;color:#7b8691;text-transform:uppercase;letter-spacing:.06em}
+.inlineFields input{width:100%;border:1px solid #cbd5dd;border-radius:11px;background:#fff;color:#17202a;padding:9px 10px;font:inherit;font-size:.85rem;outline:none}
+.inlineFields .wide{grid-column:1/-1}
+.builderSummary{padding:9px 11px;border-radius:14px;background:rgba(226,236,244,.7);color:#586572;font-size:.78rem;line-height:1.4;border:1px solid #d2dde5}
+.readerIdeas{display:none;gap:7px;flex-wrap:wrap}
+.readerIdeas.visible{display:flex}
+
 .promptWrap{min-width:0;margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec}
 .promptLabel{font-size:.75rem;font-weight:900;color:#778391;margin:0 0 7px}
 textarea{width:100%;min-height:112px;border:0;outline:0;background:transparent;color:#14191f;resize:vertical;line-height:1.48;padding:0;font-size:1rem}
@@ -92,13 +111,13 @@ textarea::placeholder{color:#7e8894;opacity:.82}
   <div class="orb" aria-hidden="true"></div>
   <div class="eyebrow">Oracle Card Studio</div>
   <h1>Build the card you pictured.</h1>
-  <p>One photo. One description. Your finished fantasy card.</p>
+  <p>Upload a photo, choose the look, and build. Typing is optional.</p>
  </header>
 
  <main class="studio">
   <section class="panel">
    <div class="sectionLabel">Create</div>
-   <h2>Describe your card</h2>
+   <h2>Build your card</h2>
 
    <div class="composer" id="composer">
     <div class="composeTop">
@@ -121,9 +140,67 @@ textarea::placeholder{color:#7e8894;opacity:.82}
       </div>
      </div>
     </div>
+
+    <div class="builderControls" id="builderControls">
+     <div class="controlBlock">
+      <div class="controlTitle">Card border</div>
+      <div class="choiceRow" data-choice-group="border">
+       <button class="choiceBtn active" type="button" data-value="white">White Border</button>
+       <button class="choiceBtn" type="button" data-value="black">Black Border</button>
+       <button class="choiceBtn" type="button" data-value="chrome">Chrome</button>
+       <button class="choiceBtn" type="button" data-value="hologram">Hologram</button>
+       <button class="choiceBtn" type="button" data-value="insert">Insert Series</button>
+      </div>
+     </div>
+     <div class="controlBlock">
+      <div class="controlTitle">Style</div>
+      <div class="choiceRow" data-choice-group="style">
+       <button class="choiceBtn active" type="button" data-value="flagship">Flagship</button>
+       <button class="choiceBtn" type="button" data-value="vintage">Vintage</button>
+       <button class="choiceBtn" type="button" data-value="contemporary">Contemporary</button>
+       <button class="choiceBtn" type="button" data-value="abstract">Abstract</button>
+      </div>
+     </div>
+     <div class="controlBlock">
+      <div class="controlTitle">Material</div>
+      <div class="choiceRow" data-choice-group="finish">
+       <button class="choiceBtn active" type="button" data-value="paper">Paper</button>
+       <button class="choiceBtn" type="button" data-value="matte">Matte</button>
+       <button class="choiceBtn" type="button" data-value="gloss">Gloss</button>
+       <button class="choiceBtn" type="button" data-value="foil">Foil</button>
+       <button class="choiceBtn" type="button" data-value="refractor">Refractor</button>
+      </div>
+     </div>
+     <div class="controlBlock">
+      <div class="controlTitle">Collector details</div>
+      <div class="choiceRow">
+       <button id="oneOfOneToggle" class="choiceBtn active" type="button">1/1 On</button>
+       <button id="signatureToggle" class="choiceBtn" type="button">Signature</button>
+       <button id="logoToggle" class="choiceBtn active" type="button">Logo</button>
+       <button id="backToggle" class="choiceBtn active" type="button">Build Back</button>
+      </div>
+     </div>
+     <div class="controlBlock">
+      <div class="controlTitle">Identity</div>
+      <div class="identityActions">
+       <button id="editTitleBtn" class="choiceBtn" type="button">Title</button>
+       <button id="editBrandBtn" class="choiceBtn" type="button">Brand / Logo</button>
+       <button id="editSeriesBtn" class="choiceBtn" type="button">Series / Date</button>
+      </div>
+      <div id="customFields" class="inlineFields">
+       <label>Title<input id="cardTitleInput" type="text" placeholder="Pink Floyd"></label>
+       <label>Brand<input id="cardBrandInput" type="text" placeholder="Your brand"></label>
+       <label>Logo text<input id="cardLogoInput" type="text" placeholder="Brand logo text"></label>
+       <label>Series<input id="cardSeriesInput" type="text" placeholder="Insert series"></label>
+       <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="1973 or 1989"></label>
+      </div>
+      <div id="readerIdeas" class="readerIdeas" aria-label="Image reader suggestions"></div>
+     </div>
+     <div id="builderSummary" class="builderSummary">Auto build: white-border flagship card · paper stock · no signature · automatic 1/1.</div>
+    </div>
     <div class="promptWrap">
-     <div class="promptLabel">Tell Oracle what you want</div>
-     <textarea id="message" placeholder="White-border 1980s flagship baseball card, clean vintage layout, red team accents, classic rookie-card feel."></textarea>
+     <div class="promptLabel">Optional refinement</div>
+     <textarea id="message" placeholder="Optional: add anything special you want. You can leave this blank and use the buttons."></textarea>
     </div>
     <div class="composerBottom">
      <div class="createGroup">
@@ -145,7 +222,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <div id="sideSwitch" class="sideSwitch"><button id="frontSide" class="sideBtn active" type="button">Front</button><button id="backSide" class="sideBtn" type="button">Back</button></div>
    </div>
    <div class="canvas">
-    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload a photo, describe the exact look, and create.</div></div>
+    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload a photo, choose a few buttons, and create. The prompt is optional.</div></div>
     <div id="buildMonitor" class="buildMonitor" aria-live="polite">
      <div class="buildTitle">Building your card</div>
      <div class="buildSteps">
@@ -169,8 +246,13 @@ textarea::placeholder{color:#7e8894;opacity:.82}
   </section>
  </main>
 </div>
-<script src="./public/builder-tools.js?v=20261005-1"></script>
+<script src="./public/card-state.js?v=20261005-1"></script>
+<script src="./public/card-numbering.js?v=20261005-1"></script>
+<script src="./public/card-templates.js?v=20261005-1"></script>
+<script src="./public/card-back.js?v=20261005-1"></script>
+<script src="./public/card-critic.js?v=20261005-1"></script>
+<script src="./public/builder-tools.js?v=20261005-2"></script>
 <script src="./public/ability-router.js?v=20261005-1"></script>
-<script src="./public/app.js?v=20261005-3"></script>
+<script src="./public/app.js?v=20261005-4"></script>
 </body>
 </html>
