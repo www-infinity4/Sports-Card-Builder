@@ -49,14 +49,20 @@ button,textarea{font:inherit}
 .photoControls{display:none;position:absolute;right:7px;top:7px;gap:6px;z-index:2}
 .photoControls button{border:0;border-radius:999px;background:rgba(15,20,27,.78);color:#fff;padding:7px 9px;font-size:.7rem;font-weight:850;backdrop-filter:blur(10px);cursor:pointer}
 
-.builderControls{margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec;display:grid;gap:12px}
-.controlBlock{display:grid;gap:7px}
+.builderControls{margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec;display:grid;gap:8px}
+.controlBlock{display:none;gap:8px;padding:10px 0}
+.controlBlock.current{display:grid}
+.controlBlock.complete{display:grid;padding:7px 0}
+.controlBlock.complete .choiceRow,.controlBlock.complete .identityActions,.controlBlock.complete .inlineFields,.controlBlock.complete .readerIdeas{display:none!important}
 .controlTitle{font-size:.72rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase;color:#778391}
+.controlSummary{display:none;border:1px solid #d6e0e8;border-radius:14px;background:rgba(255,255,255,.72);color:#566674;padding:9px 11px;font-size:.8rem;font-weight:850;cursor:pointer;text-align:left}
+.controlBlock.complete .controlSummary{display:block}
 .choiceRow{display:flex;gap:7px;flex-wrap:wrap}
-.choiceBtn{border:1px solid #c8d3dc;border-radius:999px;background:rgba(255,255,255,.7);color:#4f5b66;padding:8px 11px;font-size:.78rem;font-weight:900;cursor:pointer}
-.choiceBtn.active{background:#1f2a35;color:#fff;border-color:#1f2a35;box-shadow:0 5px 16px rgba(31,42,53,.15)}
-.choiceBtn[data-tone="premium"].active{background:linear-gradient(135deg,#353c45,#0e1319);color:#fff}
+.choiceBtn{border:1px solid #cbd6df;border-radius:999px;background:rgba(255,255,255,.82);color:#5b6874;padding:8px 11px;font-size:.78rem;font-weight:900;cursor:pointer;box-shadow:0 2px 8px rgba(60,80,100,.04)}
+.choiceBtn.active{background:#e7f1f8;color:#1f4058;border-color:#a9c6da;box-shadow:0 4px 14px rgba(76,120,150,.10)}
+.choiceBtn[data-tone="premium"].active{background:#e7f1f8;color:#1f4058;border-color:#a9c6da}
 .choiceBtn:disabled{opacity:.5;cursor:default}
+.stepContinue{justify-self:start;border:1px solid #b9ccd9;border-radius:999px;background:#f7fbfe;color:#35566c;padding:8px 14px;font-size:.78rem;font-weight:900;cursor:pointer}
 .identityActions{display:flex;gap:7px;flex-wrap:wrap}
 .inlineFields{display:none;grid-template-columns:1fr 1fr;gap:8px;padding:10px;border-radius:16px;border:1px solid #d7e0e7;background:rgba(255,255,255,.55)}
 .inlineFields.open{display:grid}
@@ -142,8 +148,9 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     </div>
 
     <div class="builderControls" id="builderControls">
-     <div class="controlBlock">
+     <div class="controlBlock current" data-builder-step="border">
       <div class="controlTitle">Card border</div>
+      <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="border">
        <button class="choiceBtn active" type="button" data-value="white">White Border</button>
        <button class="choiceBtn" type="button" data-value="black">Black Border</button>
@@ -152,8 +159,9 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button class="choiceBtn" type="button" data-value="insert">Insert Series</button>
       </div>
      </div>
-     <div class="controlBlock">
+     <div class="controlBlock" data-builder-step="style">
       <div class="controlTitle">Style</div>
+      <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="style">
        <button class="choiceBtn active" type="button" data-value="flagship">Flagship</button>
        <button class="choiceBtn" type="button" data-value="vintage">Vintage</button>
@@ -161,8 +169,9 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button class="choiceBtn" type="button" data-value="abstract">Abstract</button>
       </div>
      </div>
-     <div class="controlBlock">
+     <div class="controlBlock" data-builder-step="finish">
       <div class="controlTitle">Material</div>
+      <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="finish">
        <button class="choiceBtn active" type="button" data-value="paper">Paper</button>
        <button class="choiceBtn" type="button" data-value="matte">Matte</button>
@@ -171,17 +180,20 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button class="choiceBtn" type="button" data-value="refractor">Refractor</button>
       </div>
      </div>
-     <div class="controlBlock">
+     <div class="controlBlock" data-builder-step="collector">
       <div class="controlTitle">Collector details</div>
+      <button class="controlSummary" type="button"></button>
       <div class="choiceRow">
        <button id="oneOfOneToggle" class="choiceBtn active" type="button">1/1 On</button>
        <button id="signatureToggle" class="choiceBtn" type="button">Signature</button>
        <button id="logoToggle" class="choiceBtn active" type="button">Logo</button>
        <button id="backToggle" class="choiceBtn active" type="button">Build Back</button>
       </div>
+      <button id="collectorContinue" class="stepContinue" type="button">Continue</button>
      </div>
-     <div class="controlBlock">
+     <div class="controlBlock" data-builder-step="identity">
       <div class="controlTitle">Identity</div>
+      <button class="controlSummary" type="button"></button>
       <div class="identityActions">
        <button id="editTitleBtn" class="choiceBtn" type="button">Title</button>
        <button id="editBrandBtn" class="choiceBtn" type="button">Brand / Logo</button>
@@ -195,6 +207,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="1973 or 1989"></label>
       </div>
       <div id="readerIdeas" class="readerIdeas" aria-label="Image reader suggestions"></div>
+      <button id="identityContinue" class="stepContinue" type="button">Done</button>
      </div>
      <div id="builderSummary" class="builderSummary">Auto build: white-border flagship card · paper stock · no signature · automatic 1/1.</div>
     </div>
@@ -253,6 +266,6 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261005-3"></script>
 <script src="./public/ability-router.js?v=20261005-1"></script>
-<script src="./public/app.js?v=20261005-5"></script>
+<script src="./public/app.js?v=20261005-6"></script>
 </body>
 </html>
