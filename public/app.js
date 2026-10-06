@@ -42,6 +42,8 @@ let selectedImageIndex=-1;
 let photoReadGeneration=0;
 let imageReadPromise=Promise.resolve();
 let imageReadState='idle';
+let lastVision=null;
+let lastWebContext=[];
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -53,8 +55,12 @@ function builderDescription(freeform=''){
  const brand=s.identity.brand||s.detected.brand||'';
  const series=s.identity.series||'';
  const dateText=s.identity.dateText||s.detected.date||s.detected.era||'';
- const subjectType=s.detected.subjectType||'';
- const keywords=Array.isArray(s.detected.keywords)?s.detected.keywords.slice(0,12):[];
+ const subjectType=s.detected.subjectType||lastVision?.subjectType||'';
+ const keywords=Array.isArray(s.detected.keywords)?s.detected.keywords.slice(0,20):[];
+ const visibleText=asTextArray(lastVision?.visibleText).slice(0,16);
+ const semantic=String(lastVision?.semanticDescription||lastVision?.description||'').trim();
+ const mediaClues=asTextArray(lastVision?.mediaClues).slice(0,10);
+ const eraClues=asTextArray(lastVision?.eraClues).slice(0,10);
  if(CARD_NUMBERING&&title&&!s.identity.cardNumber)s.identity.cardNumber=CARD_NUMBERING.number(title,1);
  return [
   'IMAGE-DERIVED CARD DATA:',
@@ -64,7 +70,12 @@ function builderDescription(freeform=''){
   series?'Series / type: '+series+'.':'',
   dateText?'Date / era: '+dateText+'.':'',
   subjectType?'Detected subject type: '+subjectType+'.':'',
+  visibleText.length?'EXACT VISIBLE TEXT FROM IMAGE: '+visibleText.join(' | ')+'.':'',
+  semantic?'IMAGE SEMANTIC DESCRIPTION: '+semantic+'.':'',
+  mediaClues.length?'Media clues: '+mediaClues.join('; ')+'.':'',
+  eraClues.length?'Era clues: '+eraClues.join('; ')+'.':'',
   keywords.length?'Visual keywords: '+keywords.join(', ')+'.':'',
+  'BUILD SETTINGS: style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
   s.identity.cardNumber?'Internal card number: '+s.identity.cardNumber+'.':'',
   'SOURCE IMAGE POLICY: preserve the recognizable identity and important source-image details. Treat the uploaded image as the factual visual source, not as a suggestion to invent a replacement subject.',
   freeform?'USER INSTRUCTION: '+freeform:'USER INSTRUCTION: Design the strongest coherent collectible card that fits the image and detected context.'
@@ -107,14 +118,7 @@ function completeBuilderStep(name,summary,next){
 function activateChoice(group,value,advance=true){
  document.querySelectorAll('[data-choice-group="'+group+'"] .choiceBtn').forEach(b=>b.classList.toggle('active',b.dataset.value===value));
  CARD_STATE?.setSelection(group,value);
- if(group==='style'){
-  const styleBrand={topps:'Topps',donruss:'Donruss',fleer:'Fleer',flagship:'Flagship',upperdeck:'Upper Deck'}[value]||'';
-  if(styleBrand&&!state().identity.brand){
-   CARD_STATE?.setIdentity('brand',styleBrand);CARD_STATE?.setIdentity('logoText',styleBrand);
-   if($('cardBrandInput'))$('cardBrandInput').value=styleBrand;
-   if($('cardLogoInput'))$('cardLogoInput').value=styleBrand;
-  }
- }
+
  updateBuilderSummary();
  if(advance){
   const next=group==='style'?'border':group==='border'?'finish':group==='finish'?'collector':null;
@@ -315,7 +319,7 @@ Rules:
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({input:input+extra,context:{application:'Oracle Card Studio',task,codePhiBrowser:Boolean(browserInspection)}})
-   },14000);
+   },30000);
    const d=await r.json().catch(()=>({}));
    if(!r.ok||!d.ok)throw new Error(String(d.error||'oracle_review_failed'));
    const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -533,7 +537,7 @@ Return only the query. Do not infer a real person's or fictional character's ide
  try{
   const u=new URL(WEB_CONTEXT_SEARCH);
   u.search=new URLSearchParams({q:query,format:'json',safesearch:'1'});
-  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},9000);
+  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},20000);
   const json=await res.json().catch(()=>({}));
   return (Array.isArray(json.results)?json.results:[]).slice(0,8).map(x=>({
    title:String(x.title||'').slice(0,220),
@@ -581,7 +585,7 @@ Rules:
    method:'POST',
    headers:{'Content-Type':'application/json','Accept':'application/json'},
    body:JSON.stringify({input:inputBase+extra,context:{application:'Oracle Card Studio',task}})
-  },9000);
+  },20000);
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.ok)throw new Error(String(d.error||'gpt_image_data_unavailable'));
   const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -853,7 +857,7 @@ function resetImageDataForNewSource(){
  for(const id of ['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput']){
   if($(id))$(id).value='';
  }
- lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';
+ lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];
 }
 
 function setCreateAvailability(ready,label='Create Card'){
@@ -870,10 +874,13 @@ async function retryCurrentImageRead(){
   const visionRaw=await readUploadedImage(sourceFile);
   if(generation!==photoReadGeneration)return;
   const normalizedVision=normalizeVisionPayload(visionRaw||{});
+  lastVision=normalizedVision;
   applyVisionResult(normalizedVision,{overwrite:true});
   const webContext=await fetchWebContextForImage(normalizedVision);
+  lastWebContext=webContext;
   const vision=await completeVisionIdentity(normalizedVision,webContext);
   if(generation!==photoReadGeneration)return;
+  lastVision={...normalizedVision,...vision};
   applyVisionResult(vision,{overwrite:true});
   imageReadState='ready';
   const bits=[
@@ -923,16 +930,19 @@ async function setPhoto(file){
    const visionRaw=await readUploadedImage(file);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    const normalizedVision=normalizeVisionPayload(visionRaw||{});
+   lastVision=normalizedVision;
 
    // Put every supported AI-read fact into the visible fields immediately.
    // GPT then acts as manager and refines/organizes those same facts.
    applyVisionResult(normalizedVision,{overwrite:true});
    $('status').textContent='AI image data received. Checking visible text and web context…';
    const webContext=await fetchWebContextForImage(normalizedVision);
+   lastWebContext=webContext;
    $('status').textContent=webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
 
    const vision=await completeVisionIdentity(normalizedVision,webContext);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
+   lastVision={...normalizedVision,...vision};
    applyVisionResult(vision,{overwrite:true});
    if($('retryReadBtn'))$('retryReadBtn').style.display='none';
 
@@ -1160,7 +1170,7 @@ Rules:
 - backStyle should describe a matching period-correct card-back design.
 - renderPrompt must be a single strong image-editing prompt that includes every important requirement above and explicitly says to transform reference image 0 into the finished card artwork.
 `;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})},8000);
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})},25000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('design_unavailable');
  const raw=String(d.output||d.output_text||d.answer||'').trim();
@@ -1203,7 +1213,7 @@ Rules:
 - Preserve useful original inventions from the reference such as unusual foil, rarity cues or collector details when they improve the new card.
 - renderPrompt must explicitly tell the image editor to use reference image 0 for subject identity and reference image 1 for design/style.
 `;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})},8000);
+ const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})},25000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('reference_design_unavailable');
  const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -1502,7 +1512,7 @@ Rules:
   method:'POST',
   headers:{'Content-Type':'application/json','Accept':'application/json'},
   body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'renderer-recovery-manager'}})
- },10000);
+ },25000);
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('gpt_renderer_recovery_unavailable: '+String(d.error||r.status));
  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
