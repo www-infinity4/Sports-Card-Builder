@@ -169,10 +169,7 @@ function applyReaderSuggestions(data={}){
 window.applyOracleReaderSuggestions=applyReaderSuggestions;
 
 initBuilderControls();
-{
- const controls=$('builderControls'),top=document.querySelector('.composeTop');
- if(controls&&top&&top.parentNode)top.parentNode.insertBefore(controls,top);
-}
+// Simple flow: keep the uploader first, followed by GPT-prefilled fields and the instruction box.
 
 
 function setBusy(busy,label='Creating…'){
@@ -642,7 +639,7 @@ async function setPhoto(file){
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
- $('status').textContent='Photo loaded. Reading it now to prefill the card…';
+ $('status').textContent='Image uploaded. GPT is reading it and filling the card data…';
 
  // Image understanding is enrichment only. It starts immediately after upload,
  // fills whatever fields it can verify, and must never block Create.
@@ -659,13 +656,13 @@ async function setPhoto(file){
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
    const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
    $('status').textContent=scanBits.length
-    ? 'Photo checked: '+scanBits.join(' · ')+'. Prefilled what could be read; you can create now.'
-    : 'Photo checked. No reliable title/context text was found; you can still create now.';
+    ? 'GPT read: '+scanBits.join(' · ')+'. Check or edit the fields, then tell GPT what you want changed.'
+    : 'GPT finished reading the image. Add any missing detail in the fields or instruction box.';
 
    maybePrefillVerifiedContext(vision).then(()=>{
     if(generation!==photoReadGeneration||sourceFile!==file)return;
     const name=state().identity.title||firstText(vision.titleOptions);
-    $('status').textContent='Photo checked'+(name?': '+name:'')+'. Name/team/movie fields are ready to verify.';
+    $('status').textContent='GPT image data ready'+(name?': '+name:'')+'. Now add only the changes you want in the instruction box.';
    }).catch(()=>{});
   }catch{
    if(generation!==photoReadGeneration||sourceFile!==file)return;
@@ -1230,9 +1227,14 @@ async function renderWithComfy(blob,prompt){
 }
 
 async function renderCard(blob,prompt,description,designBlob=null){
- // Exact-source policy: this app composes cards from the uploaded pixels.
- // It does not ask FLUX, ComfyUI, or any image model to invent/repaint the subject.
- return await renderExactCard(blob);
+ // Primary path: let the connected image renderer execute the GPT-authored card plan.
+ // The exact-source compositor remains a safe fallback if the renderer is unavailable.
+ try{
+  return await renderWithComfy(blob,prompt||description||'Create a polished collectible trading card from the uploaded image.');
+ }catch(e){
+  console.warn('renderer fallback',e);
+  return await renderExactCard(blob);
+ }
 }
 
 async function nextPaint(){
@@ -1259,25 +1261,21 @@ async function createCard(count=1,mode='original'){
   stage('prepare','done');
   await nextPaint();
 
-  // Directing design must be instant and cannot call network, GPT, player lookup,
-  // validators, routers, or any other subsystem that can stall the preview.
-  stage('plan','active','Applying your selected card style…');
-  lastPlan={
-   era:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'user-directed',
-   cardFamily:state().selections.style||'flagship',
-   renderPrompt:lastDescription,
-   suggestions:[],
-   backStyle:'Match the selected front style.'
-  };
-  lastToolPlan=null;
+  stage('plan','active','GPT is turning the image data + your instruction into a card plan…');
+  try{
+   lastPlan=await buildDesignPlan(lastDescription,lastIntel,lastIntent);
+  }catch{
+   lastPlan=localDesignPlan(lastDescription,lastIntel,lastIntent);
+  }
   lastAbilityRoute=null;
-  stage('plan','done','Design applied.');
+  stage('plan','done','GPT plan ready.');
   await nextPaint();
 
   for(let i=0;i<count;i++){
-   stage('render','active',count>1?'Building card '+(i+1)+' of '+count+'…':'Building preview from your exact image…');
+   stage('render','active',count>1?'Rendering card '+(i+1)+' of '+count+'…':'Rendering the GPT card plan…');
    await nextPaint();
-   const out=await renderExactCard(lastBlob);
+   const renderPrompt=count>1?variationPrompt(lastPlan,'variation',i,''):lastPlan.renderPrompt;
+   const out=await renderCard(lastBlob,renderPrompt,lastDescription,lastReferenceBlob);
    stage('render','done');
    stage('finish','active','Adding card text and collector details…');
    await nextPaint();
