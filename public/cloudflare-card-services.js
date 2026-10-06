@@ -136,13 +136,58 @@
    method:'POST',headers:{'Content-Type':'application/json'},body,requestId,retries:0
   });
  }
- function searchWeb(query,{images=false,timeoutMs=TIMEOUTS.search,fetch:fetchImpl}={}){
+ async function searchWeb(query,{images=false,timeoutMs=TIMEOUTS.search,fetch:fetchImpl}={}){
+  const term=String(query||'').trim();
   const url=new URL(ENDPOINTS.search);
   url.search=new URLSearchParams({
-   q:String(query||''),format:'json',safesearch:'1',
+   q:term,format:'json',safesearch:'1',
    ...(images?{categories:'images'}:{})
   });
-  return request('search',{headers:{Accept:'application/json'},timeoutMs,fetch:fetchImpl,method:'GET',url:url.toString()});
+  try{
+   const primary=await request('search',{headers:{Accept:'application/json'},timeoutMs,fetch:fetchImpl,method:'GET',url:url.toString()});
+   if(primary.ok)return primary;
+  }catch(error){
+   // An offline Orange Brook Container must not erase the evidence from the image reader.
+  }
+  // Clearly identified backup: Wikimedia's public search APIs, NOT a fake SearXNG response.
+  const wiki=new URL(images?'https://commons.wikimedia.org/w/api.php':'https://en.wikipedia.org/w/api.php');
+  wiki.search=images?new URLSearchParams({
+   action:'query',generator:'search',gsrsearch:term,gsrnamespace:'6',gsrlimit:'12',
+   prop:'imageinfo',iiprop:'url',iiurlwidth:'640',format:'json',origin:'*'
+  }):new URLSearchParams({
+   action:'query',list:'search',srsearch:term,srlimit:'12',format:'json',origin:'*'
+  });
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),Math.max(1000,timeoutMs));
+  try{
+   const r=await (fetchImpl||fetch)(wiki.toString(),{headers:{Accept:'application/json'},signal:controller.signal});
+   if(!r.ok)throw new Error('wikimedia_fallback_http_'+r.status);
+   const data=await r.json();
+   if(data?.error)throw new Error('wikimedia_fallback_api_error');
+   let results=[];
+   if(images){
+    results=Object.values(data?.query?.pages||{}).map(page=>{
+     const file=page?.imageinfo?.[0]||{};
+     const image=String(file.thumburl||file.url||'');
+     const title=String(page?.title||'').replace(/^File:/,'');
+     return {title,url:String(file.descriptionurl||file.url||''),img_src:image,thumbnail:image,content:'Wikimedia Commons file search result',source:'wikimedia-commons'};
+    }).filter(item=>/^https:\/\//.test(item.img_src)&&!(/\.svg(?:[?#]|$)/i.test(item.img_src))).slice(0,12);
+   }else{
+    results=(data?.query?.search||[]).map(item=>({
+     title:String(item.title||''),
+     url:'https://en.wikipedia.org/wiki/'+encodeURIComponent(String(item.title||'').replace(/ /g,'_')),
+     content:String(item.snippet||'').replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim(),
+     source:'wikipedia'
+    })).filter(item=>item.title);
+   }
+   history.push({requestId:id(),endpoint:'search',method:'GET',status:200,ok:true,provider:'wikimedia-fallback',count:results.length});
+   if(history.length>100)history.shift();
+   return new Response(JSON.stringify({results,query:term,provider:'wikimedia-fallback',primary:'orange-brook-unavailable'}),{
+    status:200,headers:{'Content-Type':'application/json','X-Oracle-Search-Fallback':'wikimedia'}
+   });
+  }catch(error){
+   throw normalizeError(error,'search');
+  }finally{clearTimeout(timer)}
  }
  function capabilities(){
   return {
