@@ -2,72 +2,68 @@
 'use strict';
 
 const ABILITIES={
- vision_browser:{
-  id:'vision_browser',
-  engine:'transformers.js',
-  fork:'www-infinity4/transformers.js',
-  runtime:'browser',
-  tasks:['image-classification','object-detection','segmentation','depth-estimation','zero-shot-object-detection'],
-  purpose:'Fast browser-side inspection of uploaded subject and rendered card.'
+ image_reader:{
+  id:'image_reader',
+  engine:'Gemma 4 26B',
+  runtime:'Cloudflare Workers AI',
+  tasks:['ocr','visual-semantics','objects','era-clues','media-clues'],
+  purpose:'Reads the exact uploaded image twice, with an OCR-first audit pass.'
  },
- segmentation:{
-  id:'segmentation',
-  engine:'SAM2',
-  fork:'www-infinity4/sam2',
-  runtime:'gpu-service',
-  tasks:['subject-mask','object-mask','video-mask-propagation'],
-  purpose:'Precise player/object isolation, masking and region-aware editing.'
+ web_context:{
+  id:'web_context',
+  engine:'Orange Brook / SearXNG',
+  runtime:'Cloudflare container',
+  tasks:['exact-ocr-search','context-corroboration'],
+  purpose:'Searches literal visible text first, then corroborates image context.'
  },
- workflow:{
-  id:'workflow',
-  engine:'ComfyUI',
-  fork:'www-infinity4/ComfyUI',
-  runtime:'gpu-service',
-  tasks:['workflow-graph','inpainting','outpainting','reference-conditioning','mask-compositing','upscaling','frame-interpolation'],
-  purpose:'Primary open workflow/orchestration engine for reproducible card builds.'
+ manager:{
+  id:'manager',
+  engine:'GPT-OSS 120B',
+  runtime:'Cloudflare Workers AI',
+  tasks:['semantic-reconciliation','design-planning','renderer-recovery','visual-critique'],
+  purpose:'Acts as the manager over reading, planning, recovery and critique.'
  },
  image_generation:{
   id:'image_generation',
-  engine:'FLUX + Diffusers',
-  forks:['www-infinity4/flux','www-infinity4/diffusers'],
-  runtime:'gpu-service',
-  tasks:['text-to-image','image-to-image','inpainting','controlled-generation'],
-  purpose:'High-quality card artwork generation and edit pipelines.'
+  engine:'FLUX.2 Dev + Klein 9B',
+  runtime:'Cloudflare Workers AI',
+  tasks:['reference-image-edit','card-render','repair-render'],
+  purpose:'Renders and repairs the finished collectible-card artwork.'
  },
- video_generation:{
-  id:'video_generation',
-  engine:'Wan2.2',
-  fork:'www-infinity4/Wan2.2',
-  runtime:'gpu-service',
-  tasks:['text-to-video','image-to-video','text-image-to-video','character-animation'],
-  purpose:'Animate finished cards, foil, reveals and short collectible sequences.'
+ exact_typography:{
+  id:'exact_typography',
+  engine:'Exact text compositor',
+  runtime:'browser',
+  tasks:['title','context','series','date','collector-mark'],
+  purpose:'Adds verified text after image generation so names are spelled exactly.'
+ },
+ browser_critic:{
+  id:'browser_critic',
+  engine:'Code Phi Cloud Browser',
+  runtime:'Cloudflare Browser Rendering',
+  tasks:['mobile-inspection','runtime-errors','overflow','broken-assets'],
+  purpose:'Inspects the finished card in the phone-sized browser view before acceptance.'
  }
 };
 
-function route(build){
- const s=build?.semantics||{};
- const requested=String(s.raw||'').toLowerCase();
- const pipeline=['vision_browser'];
- if(build?.mode==='reference'||/reference|use this card|build like/.test(requested))pipeline.push('segmentation');
- pipeline.push('workflow','image_generation');
- if(/animate|animation|motion|video|moving|spin|rotate|reveal|shimmer/.test(requested))pipeline.push('video_generation');
+function route(build={}){
+ const raw=String(build?.semantics?.raw||'').toLowerCase();
+ const pipeline=['image_reader','web_context','manager','image_generation','exact_typography','browser_critic'];
  return {
-  version:'2026.10.05.1',
+  version:'2026.10.06.2',
   pipeline,
   abilities:pipeline.map(id=>ABILITIES[id]),
-  execution:{
-   browser:pipeline.filter(id=>ABILITIES[id].runtime==='browser'),
-   gpuService:pipeline.filter(id=>ABILITIES[id].runtime==='gpu-service')
-  }
+  optional:/reference|build like|use this card/.test(raw)?['reference-conditioning']:[],
+  execution:{active:pipeline}
  };
 }
 
 function buildCapabilityNote(plan){
  const r=route(plan);
  return [
-  'ORACLE ABILITY ROUTE:',
+  'ORACLE ACTIVE SKILLS:',
   ...r.abilities.map(a=>'- '+a.engine+': '+a.purpose),
-  'Use the selected engines as responsibilities, not as decorative names. Preserve all semantic hard locks.'
+  'These are active responsibilities, not decorative labels. Preserve semantic hard locks.'
  ].join('\n');
 }
 
