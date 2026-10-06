@@ -127,6 +127,15 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 .actionBtn:disabled,.newBtn:disabled{opacity:.5;cursor:default}
 .newBtn{display:none;color:#687782}
 @media(max-width:520px){.reviewHead{display:grid}.reviewStatus{max-width:none}.actions{gap:7px}.actionBtn,.newBtn{padding:9px 12px;font-size:.82rem}}
+
+.simpleUpload{grid-template-columns:minmax(190px,280px)!important;justify-content:center}
+#builderControls{margin-top:14px!important}
+#builderControls .controlBlock{display:none!important}
+#builderControls .controlBlock[data-builder-step="identity"]{display:grid!important}
+#builderControls .controlSummary,#builderSummary{display:none!important}
+#customFields{display:grid!important;grid-template-columns:1fr 1fr!important}
+#customFields .wide{grid-column:1/-1}
+@media(max-width:620px){#customFields{grid-template-columns:1fr!important}#customFields .wide{grid-column:auto}}
 </style>
 </head>
 <body>
@@ -144,30 +153,26 @@ textarea::placeholder{color:#7e8894;opacity:.82}
    <h2>Build your card</h2>
 
    <div class="composer" id="composer">
-    <div class="composeTop">
-     <div class="photoTile" id="thumbBox" role="button" tabindex="0" aria-label="Add or replace subject image">
+    <div class="composeTop simpleUpload">
+     <div class="photoTile" id="thumbBox" role="button" tabindex="0" aria-label="Upload the source image">
       <img id="thumb" alt="">
-      <div id="thumbText" class="photoEmpty"><span class="plus">＋</span><span>Subject</span></div>
-      <span class="tileLabel">Subject</span>
+      <div id="thumbText" class="photoEmpty"><span class="plus">＋</span><span>Upload image</span></div>
+      <span class="tileLabel">Source image</span>
       <div id="thumbControls" class="photoControls">
        <button id="replacePhoto" type="button">Replace</button>
        <button id="removePhoto" type="button">Remove</button>
       </div>
      </div>
-     <div class="photoTile" id="referenceBox" role="button" tabindex="0" aria-label="Add or replace card design reference">
+     <div id="referenceBox" style="display:none" aria-hidden="true">
       <img id="referenceThumb" alt="">
-      <div id="referenceText" class="photoEmpty"><span class="plus">＋</span><span>Card style</span></div>
-      <span class="tileLabel">Reference</span>
-      <div id="referenceControls" class="photoControls">
-       <button id="replaceReference" type="button">Replace</button>
-       <button id="removeReference" type="button">Remove</button>
-      </div>
+      <div id="referenceText"></div>
+      <div id="referenceControls"><button id="replaceReference" type="button">Replace</button><button id="removeReference" type="button">Remove</button></div>
      </div>
     </div>
 
     <div class="builderControls" id="builderControls">
      <div class="controlBlock current" data-builder-step="style">
-      <div class="controlTitle">Style first</div>
+      <div class="controlTitle">Hidden defaults</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="style">
        <button class="choiceBtn" type="button" data-value="topps">Topps</button>
@@ -211,36 +216,36 @@ textarea::placeholder{color:#7e8894;opacity:.82}
       <button id="collectorContinue" class="stepContinue" type="button">Continue</button>
      </div>
      <div class="controlBlock" data-builder-step="identity">
-      <div class="controlTitle">Identity</div>
+      <div class="controlTitle">GPT image read</div>
       <button class="controlSummary" type="button"></button>
-      <div class="identityActions">
+      <div class="identityActions" style="display:none">
        <button id="showNameToggle" class="choiceBtn active" type="button">Name On</button>
-       <button id="showContextToggle" class="choiceBtn active" type="button">Team / Movie On</button>
-       <button id="editBrandBtn" class="choiceBtn" type="button">Brand / Logo</button>
-       <button id="editSeriesBtn" class="choiceBtn" type="button">More details</button>
+       <button id="showContextToggle" class="choiceBtn active" type="button">Context On</button>
+       <button id="editBrandBtn" class="choiceBtn" type="button">Brand</button>
+       <button id="editSeriesBtn" class="choiceBtn" type="button">Details</button>
       </div>
       <div id="customFields" class="inlineFields open">
-       <label class="wide">Player / actor / subject name — check this<input id="cardTitleInput" type="text" placeholder="AI reads the uploaded image; edit if needed"></label>
-       <label class="wide">Team / movie / context — check this<input id="cardContextInput" type="text" placeholder="Prefilled only when supported by the image read"></label>
-       <label>Brand / logo<input id="cardBrandInput" type="text" placeholder="Brand shown as the logo"></label>
-       <label>Series<input id="cardSeriesInput" type="text" placeholder="Optional series"></label>
-       <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="1973 or 1989"></label>
+       <label class="wide">Title / subject<input id="cardTitleInput" type="text" placeholder="GPT fills this from the uploaded image"></label>
+       <label class="wide">Context<input id="cardContextInput" type="text" placeholder="Team, movie, event, product, band, location, or other context"></label>
+       <label>Brand / logo text<input id="cardBrandInput" type="text" placeholder="GPT fills when supported"></label>
+       <label>Series / type<input id="cardSeriesInput" type="text" placeholder="GPT fills or suggests a useful card type"></label>
+       <label class="wide">Date / era<input id="cardDateInput" type="text" placeholder="GPT fills when visible or inferable"></label>
        <input id="cardLogoInput" type="hidden">
       </div>
       <div id="readerIdeas" class="readerIdeas" aria-label="Image reader suggestions"></div>
-      <button id="identityContinue" class="stepContinue" type="button">Done</button>
+      <button id="identityContinue" class="stepContinue" type="button" style="display:none">Done</button>
      </div>
      <div id="builderSummary" class="builderSummary">Auto build: white-border flagship card · paper stock · no signature · automatic 1/1.</div>
     </div>
     <div class="promptWrap">
-     <div class="promptLabel">Optional refinement</div>
-     <textarea id="message" placeholder="Optional: add anything special you want. You can leave this blank and use the buttons."></textarea>
+     <div class="promptLabel">What do you want GPT to do with the image data?</div>
+     <textarea id="message" placeholder="Example: make this a bold 1989 baseball card, keep the face exact, use the detected name and team, sharp corners, strong full-card composition."></textarea>
     </div>
     <div class="composerBottom">
      <div class="createGroup">
       <button id="make" class="createBtn">Create Card</button>
-      <button id="buildLike" class="secondaryBtn">Build Like This Card</button>
-      <button id="make3" class="secondaryBtn">Create 3</button>
+      <button id="buildLike" class="secondaryBtn" style="display:none">Build Like This Card</button>
+      <button id="make3" class="secondaryBtn" style="display:none">Create 3</button>
      </div>
     </div>
     <div id="imageTray" class="imageTray" aria-label="Selected images"></div>
@@ -257,12 +262,12 @@ textarea::placeholder{color:#7e8894;opacity:.82}
     <div id="sideSwitch" class="sideSwitch"><button id="frontSide" class="sideBtn active" type="button">Front</button><button id="backSide" class="sideBtn" type="button">Back</button></div>
    </div>
    <div class="canvas">
-    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload a photo, choose a few buttons, and create. The prompt is optional.</div></div>
+    <div id="empty" class="empty"><div><strong>Your card appears here.</strong>Upload an image. GPT reads it into the fields. Add only what you want changed in the text box, then create.</div></div>
     <div id="buildMonitor" class="buildMonitor" aria-live="polite">
      <div class="buildTitle">Building your card</div>
      <div class="buildSteps">
       <div class="buildStep" data-stage="prepare"><span class="dot"></span><span>Preparing photo</span><span class="state">Waiting</span></div>
-      <div class="buildStep" data-stage="plan"><span class="dot"></span><span>Directing design</span><span class="state">Waiting</span></div>
+      <div class="buildStep" data-stage="plan"><span class="dot"></span><span>GPT card plan</span><span class="state">Waiting</span></div>
       <div class="buildStep" data-stage="render"><span class="dot"></span><span>Rendering card</span><span class="state">Waiting</span></div>
       <div class="buildStep" data-stage="finish"><span class="dot"></span><span>Finishing</span><span class="state">Waiting</span></div>
      </div>
