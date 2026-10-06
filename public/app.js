@@ -1153,59 +1153,73 @@ async function renderCard(blob,prompt,description,designBlob=null){
  return await renderExactCard(blob);
 }
 
+async function nextPaint(){
+ return await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+}
+
 async function createCard(count=1,mode='original'){
  const freeform=$('message').value.trim();
- const description=builderDescription(freeform);
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
- setBusy(true,count===3?'Creating 3…':'Creating…');$('status').textContent='Designing your card…';showMonitor();
+
+ setBusy(true,count===3?'Creating 3…':'Creating…');
+ $('status').textContent='Building your card…';
+ showMonitor();
+
  try{
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
-  stage('prepare','active','Preparing a high-quality reference image…');
+
+  stage('prepare','active','Using the exact uploaded image…');
   lastBlob=sourceFile;
   lastReferenceBlob=mode==='reference'?referenceFile:null;
-  lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
   buildMode=mode;
+  lastDescription=builderDescription(freeform)||'Build collectible card';
   stage('prepare','done');
-  stage('plan','active','Directing design from your selected style…');
-  const chosenTitle=state().identity.title||state().detected.title||'';
-  const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
-  const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
-  lastIntent={
-   playerQuery:sportsContext?chosenTitle:'',
-   teamQuery:state().identity.context||'',
-   explicitYear:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'',
-   cardType:sportsContext?'sports card':'collectible card',
-   subset:'',
-   historicalAngle:''
-  };
+  await nextPaint();
 
-  // The preview path is intentionally synchronous and local.
-  // GPT/player lookup can enrich later, but cannot stop the card from being built.
+  // Directing design must be instant and cannot call network, GPT, player lookup,
+  // validators, routers, or any other subsystem that can stall the preview.
+  stage('plan','active','Applying your selected card style…');
   lastPlan={
-   era:lastIntent.explicitYear||'user-directed',
+   era:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'user-directed',
    cardFamily:state().selections.style||'flagship',
-   suggestedYear:lastIntent.explicitYear||'',
-   suggestedCardType:lastIntent.cardType,
+   renderPrompt:lastDescription,
    suggestions:[],
-   backStyle:'Match the selected front style.',
-   renderPrompt:lastDescription
+   backStyle:'Match the selected front style.'
   };
   lastToolPlan=null;
   lastAbilityRoute=null;
-  $('smartIdeas').style.display='none';
-  stage('plan','done','Design locked. Building preview now.');
+  stage('plan','done','Design applied.');
+  await nextPaint();
 
+  for(let i=0;i<count;i++){
+   stage('render','active',count>1?'Building card '+(i+1)+' of '+count+'…':'Building preview from your exact image…');
+   await nextPaint();
+   const out=await renderExactCard(lastBlob);
+   stage('render','done');
+   stage('finish','active','Adding card text and collector details…');
+   await nextPaint();
+   await finishOutput(out);
+   stage('finish','done');
+  }
+
+  $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
+
+  // Optional enrichment is deliberately after the visible card exists.
+  const chosenTitle=state().identity.title||state().detected.title||'';
+  const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
+  const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
   if(sportsContext&&chosenTitle){
    fetchPlayerIntel(chosenTitle).then(v=>{if(v)lastIntel=v}).catch(()=>{});
-  }else lastIntel=null;
-  await generateFromPlan(count===3?'variations':'single',count);
+  }
  }catch(e){
   const active=document.querySelector('.buildStep.active');
   if(active){active.classList.remove('active');active.classList.add('error');active.querySelector('.state').textContent='Check'}
-  $('buildNote').textContent='Build stopped here. Your photo and description are still ready to retry.';
-  $('status').innerHTML='<strong>Build stopped.</strong> Try again.';
- }finally{setBusy(false)}
+  $('buildNote').textContent='Build stopped: '+String(e?.message||e||'unknown error');
+  $('status').innerHTML='<strong>Build stopped.</strong> '+String(e?.message||'Try again.');
+ }finally{
+  setBusy(false);
+ }
 }
 
 async function buildAction(kind,instruction=''){
