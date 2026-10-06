@@ -37,6 +37,7 @@ let backResult='';
 let currentSide='front';
 let selectedImageFiles=[];
 let selectedImageIndex=-1;
+let photoReadGeneration=0;
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -572,26 +573,48 @@ function renderImageTray(files){
 }
 function openPicker(){ $('photo').click(); }
 async function setPhoto(file){
+ const generation=++photoReadGeneration;
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
  if(!file){
   sourceFile=null;
   $('thumb').removeAttribute('src');$('thumb').style.display='none';$('thumbText').style.display='grid';
   $('thumbControls').style.display='none';$('photo').value='';$('status').textContent='Tap the photo tile to begin.';return;
  }
- $('status').textContent='Finding the main image and cropping away the page…';
- const prepared=await prepareUploadedImage(file);
- sourceFile=prepared.blob||file;
+
+ // Lock the exact uploaded file immediately. Do not crop, resize, reinterpret, or
+ // wait for AI before allowing Create/preview to use it.
+ sourceFile=file;
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
- $('status').textContent=prepared.cropped?'Main image found. Reading what is actually in it…':'Reading what is actually in the image…';
- const visionRaw=await readUploadedImage(sourceFile).catch(()=>null);
- const vision=await completeVisionIdentity(visionRaw||{});
- applyVisionResult(vision);
- await maybePrefillVerifiedContext(vision);
- const autoTitle=state().identity.title||firstText(vision.titleOptions);
- $('status').textContent='Image read complete'+(autoTitle?': '+autoTitle:'')+'. Check the name and team/movie fields; nothing unsupported will be invented.';
+ $('status').textContent='Photo loaded. Reading it now to prefill the card…';
+
+ // Image understanding is enrichment only. It starts immediately after upload,
+ // fills whatever fields it can verify, and must never block Create.
+ Promise.resolve().then(async()=>{
+  try{
+   const visionRaw=await readUploadedImage(file).catch(()=>null);
+   if(generation!==photoReadGeneration||sourceFile!==file)return;
+   const vision=await completeVisionIdentity(visionRaw||{});
+   if(generation!==photoReadGeneration||sourceFile!==file)return;
+   applyVisionResult(vision);
+
+   // Context lookup can be slower; run it after the first prefills are already visible.
+   const autoTitle=state().identity.title||firstText(vision.titleOptions);
+   $('status').textContent='Photo checked'+(autoTitle?': '+autoTitle:'')+'. Prefilled what could be read; you can create now.';
+
+   maybePrefillVerifiedContext(vision).then(()=>{
+    if(generation!==photoReadGeneration||sourceFile!==file)return;
+    const name=state().identity.title||firstText(vision.titleOptions);
+    $('status').textContent='Photo checked'+(name?': '+name:'')+'. Name/team/movie fields are ready to verify.';
+   }).catch(()=>{});
+  }catch{
+   if(generation!==photoReadGeneration||sourceFile!==file)return;
+   $('status').textContent='Photo loaded. Image reading was unavailable, but Create is ready.';
+  }
+ });
 }
+
 $('photo').addEventListener('change',async e=>{
  const files=[...(e.target.files||[])].filter(f=>f.type.startsWith('image/'));
  if(!files.length){await setPhoto(null);return}
