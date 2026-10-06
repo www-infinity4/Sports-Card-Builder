@@ -1,7 +1,6 @@
-const SERVICE='https://infinity-rogers.marvaseater.workers.dev';
-const COMFY_RENDERER_ENDPOINT=SERVICE+'/v1/comfy-image';
-const CODE_PHI_INSPECT='https://orange-brook-a2ac.marvaseater.workers.dev/code-phi/inspect';
-const WEB_CONTEXT_SEARCH='https://orange-brook-a2ac.marvaseater.workers.dev/search';
+const SERVICES=window.OracleCloudflareCardServices||null;
+const CARD_EVIDENCE=window.OracleCardEvidence||null;
+const COMFY_RENDERER_ENDPOINT=SERVICES?.ENDPOINTS?.comfyImage||'';
 const $=id=>document.getElementById(id);
 const BUILDER=window.OracleBuilderTools||null;
 const ABILITY_ROUTER=window.OracleAbilityRouter||null;
@@ -14,6 +13,7 @@ const TEMPLATE_DB=window.OracleTemplateDB||null;
 const TEMPLATE_REF_KEY='oracle-template-refs-v1';
 const TEMPLATE_REF_TTL=7*24*3600*1000;
 const TEMPLATE_REF_MISS_TTL=3600*1000;
+const ARTWORK_ONLY_INSTRUCTION='Create artwork, borders, textures and non-text design treatment only. Do not render words, letters, logos, numbers, captions, dates or pseudo-text; verified lettering and collector marks are composited deterministically after rendering.';
 // Route the image reader to read the whole image, not just the main subject.
 const FULL_READ_INSTRUCTIONS=[
  'Read EVERYTHING in this image before answering: every printed word, name, number, jersey number, logo text, watermark, caption, copyright/credit line, card-maker mark, year, team, league, studio, network, franchise and series text, in every corner and on every edge.',
@@ -58,6 +58,40 @@ let lastVision=null;
 let lastWebContext=[];
 let lastImageComparison=null;
 let lastTemplateRefs=[];
+let cardEvidence=CARD_EVIDENCE?.create()||null;
+let lastTemplateSpec=null;
+let buildDiagnostics={};
+
+function resetBuildDiagnostics(){
+ buildDiagnostics={buildId:'',startedAt:new Date().toISOString(),pipeline:{},imageReader:{status:'waiting',contract:'full-read-v2'},comparison:{status:'waiting',candidates:0},evidenceConfidence:{},templateId:'',renderer:'',fallbackReason:'',gptPlanner:'waiting',playerIntel:'not-requested',validator:'waiting',capabilities:SERVICES?.capabilities?.()||{}};
+ buildDiagnostics.buildId=buildDiagnostics.buildId||('build-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8));
+ updateBuildDiagnostics();
+}
+function updateBuildDiagnostics(){
+ const out=$('buildDiagnostics');if(!out)return;
+ const safe={...buildDiagnostics,serviceRequests:SERVICES?.diagnostics?.().slice(-12)||[]};
+ out.textContent=JSON.stringify(safe,null,2);
+}
+function recordBuildDiagnostic(key,value){
+ buildDiagnostics[key]=value;
+ updateBuildDiagnostics();
+}
+function diagnosticError(error){
+ return String(error?.code||error?.name||'service_unavailable').slice(0,80);
+}
+function pipelineProgress(name,status,detail=''){
+ buildDiagnostics.pipeline[name]={status,detail,time:new Date().toISOString()};
+ const row=document.querySelector('[data-stage="'+name+'"]');
+ if(row){
+  row.classList.remove('active','done','error','optional');
+  if(status==='active')row.classList.add('active');
+  else if(status==='complete')row.classList.add('done');
+  else if(status==='unavailable')row.classList.add('optional');
+  else if(status==='error')row.classList.add('error');
+  row.querySelector('.state').textContent=status==='active'?'Working':status==='complete'?'Done':status==='unavailable'?'Optional':'Check';
+ }
+ updateBuildDiagnostics();
+}
 
 
 function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
@@ -130,16 +164,57 @@ async function fetchTemplateReferences(tpl){
  };
  try{
   const query=TEMPLATE_DB.referenceQuery(tpl);
-  const u=new URL(WEB_CONTEXT_SEARCH);
-  u.search=new URLSearchParams({q:query,format:'json',categories:'images',safesearch:'1'});
-  const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},5000);
-  if(!res.ok){if(!hit?.images?.length)remember([],true);return hit?.images||[];}
-  const json=await res.json().catch(()=>({}));
-  const images=(Array.isArray(json.results)?json.results:[]).map(x=>({
-   title:String(x.title||'').slice(0,160),
-   url:String(x.url||'').slice(0,500),
-   image:String(x.img_src||x.thumbnail_src||'').slice(0,800)
-  })).filter(x=>/^https?:\/\//i.test(x.image)).slice(0,8);
+  const queries=[...new Set([
+   query,
+   [tpl.year,tpl.maker,tpl.line,'trading card front example'].filter(Boolean).join(' '),
+   [tpl.year,tpl.maker,tpl.line,tpl.category==='sports'?'baseball card':'collectible card design'].filter(Boolean).join(' ')
+  ])];
+  const batches=await Promise.all(queries.map(async q=>{
+   try{
+    const res=await SERVICES.searchWeb(q,{images:true,timeoutMs:5000});
+    if(!res.ok)return [];
+    const json=await res.json().catch(()=>({}));
+    return (Array.isArray(json.results)?json.results:[]).map(x=>({
+     title:String(x.title||'').slice(0,160),
+     url:String(x.url||'').slice(0,500),
+     image:String(x.img_src||x.thumbnail_src||x.thumbnail||'').slice(0,800)
+    })).filter(x=>/^https?:\/\//i.test(x.image));
+   }catch{return []}
+  }));
+  const seen=new Set(),images=[];
+  for(const batch of batches){
+   for(const image of batch){
+    const key=image.image.split('?')[0];
+    if(seen.has(key))continue;
+    seen.add(key);images.push(image);
+    if(images.length>=10)break;
+   }
+   if(images.length>=10)break;
+  }
+  if(buildMode==='reference'&&referenceFile&&images.length){
+   try{
+    const transport=await prepareTransportImage(referenceFile,{max:1000,maxBytes:2_500_000});
+    const form=new FormData();
+    form.append('image',transport,'design-reference.jpg');
+    form.append('candidates',JSON.stringify(images.map((image,index)=>({...image,index}))));
+    form.append('instructions','Identify which candidates are actual examples of the requested '+tpl.year+' '+tpl.maker+' '+tpl.line+' trading-card design by comparing border geometry, layout, proportions and print treatment. Do not identify or replace the uploaded subject.');
+    const response=await SERVICES.compareImageCandidates({body:form,timeoutMs:9000});
+    const comparison=await response.json().catch(()=>({}));
+    const matches=Array.isArray(comparison.matches)?comparison.matches:[];
+    const matchKeys=new Set(matches.filter(item=>Number(item.confidence??item.score??0)>=70).flatMap(item=>{
+     const index=Number(item.candidateIndex??item.index);
+     return [
+      Number.isInteger(index)&&images[index]?images[index].image.split('?')[0]:'',
+      String(item.image||item.imageUrl||'').split('?')[0]
+     ].filter(Boolean);
+    }));
+    if(response.ok&&comparison.contract==='image-compare-v2'&&comparison.instructionsApplied===true&&matchKeys.size){
+     const matched=images.filter(image=>matchKeys.has(image.image.split('?')[0]));
+     if(matched.length)images.splice(0,images.length,...matched);
+     recordBuildDiagnostic('templateReferenceComparison',{status:'complete',candidates:matchKeys.size,confidence:Number(comparison.confidence||0)});
+    }else recordBuildDiagnostic('templateReferenceComparison',{status:'unavailable',candidates:images.length});
+   }catch{recordBuildDiagnostic('templateReferenceComparison',{status:'unavailable',candidates:images.length})}
+  }
   if(images.length)remember(images,false);
   else if(!hit?.images?.length)remember([],true);
   return images.length?images:(hit?.images||[]);
@@ -166,6 +241,7 @@ function builderDescription(freeform=''){
  const category=activeCategory();
  const roles=TEMPLATE_DB?.CATEGORIES[category]||null;
  const tpl=activeTemplate();
+ const spec=TEMPLATE_DB?.compileTemplateSpec(tpl)||null;
  return [
   'IMAGE-DERIVED CARD DATA:',
   roles?'Card type: '+roles.label+'. Brand spot = '+roles.brandRole+'. Name plate (lower right) = '+roles.titleRole+'. Context = '+roles.contextRole+'.':'',
@@ -174,6 +250,9 @@ function builderDescription(freeform=''){
   brand?'Brand / logo text: '+brand+'.':'',
   series?'Series / type: '+series+'.':'',
   dateText?'Date / era: '+dateText+'.':'',
+  state().detected.cardMaker?'Printed card maker: '+state().detected.cardMaker+'.':'',
+  state().detected.cardYear?'Printed card year: '+state().detected.cardYear+'.':'',
+  cardEvidence?.provenance?'EVIDENCE PROVENANCE (printed facts are locked above weaker interpretations): '+JSON.stringify(cardEvidence.provenance)+'.':'',
   subjectType?'Detected subject type: '+subjectType+'.':'',
   visibleText.length?'EXACT VISIBLE TEXT FROM IMAGE: '+visibleText.join(' | ')+'.':'',
   semantic?'IMAGE SEMANTIC DESCRIPTION: '+semantic+'.':'',
@@ -181,6 +260,7 @@ function builderDescription(freeform=''){
   eraClues.length?'Era clues: '+eraClues.join('; ')+'.':'',
   lastImageComparison?.compared?'SEARXNG IMAGE COMPARISON: '+JSON.stringify({title:lastImageComparison.title,context:lastImageComparison.context,brand:lastImageComparison.brand,series:lastImageComparison.series,date:lastImageComparison.date,confidence:lastImageComparison.confidence,matches:lastImageComparison.matches,evidence:lastImageComparison.evidence})+'.':'',
   keywords.length?'Visual keywords: '+keywords.join(', ')+'.':'',
+  spec?'COMPILED TEMPLATE SPEC: '+JSON.stringify(spec)+'.':'',
   tpl?TEMPLATE_DB.promptFor(tpl):'',
   lastTemplateRefs.length?'TEMPLATE REFERENCE IMAGES FOUND ONLINE for '+templateLabel(tpl)+': '+lastTemplateRefs.slice(0,5).map(r=>r.title).filter(Boolean).join(' | ')+'.':'',
   'BUILD SETTINGS: template '+(tpl?templateLabel(tpl):'none')+', style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
@@ -290,6 +370,11 @@ function initBuilderControls(){
  });
  $('cardCategorySelect')?.addEventListener('change',e=>{
   CARD_STATE?.setSelection('category',e.target.value);
+  if(CARD_EVIDENCE&&cardEvidence){
+   cardEvidence=e.target.value==='auto'
+    ?CARD_EVIDENCE.clearUserOverride(cardEvidence,'category')
+    :CARD_EVIDENCE.addUserOverride(cardEvidence,'category',e.target.value);
+  }
   populateTemplateSelect();
  });
  $('cardTemplateSelect')?.addEventListener('change',e=>{
@@ -300,6 +385,14 @@ function initBuilderControls(){
  const inputMap={cardTitleInput:'title',cardContextInput:'context',cardBrandInput:'brand',cardSeriesInput:'series',cardDateInput:'dateText'};
  Object.entries(inputMap).forEach(([id,key])=>$(id)?.addEventListener('input',e=>{
   CARD_STATE?.setIdentity(key,e.target.value);
+  const evidenceField=key==='dateText'?'date':key;
+  if(CARD_EVIDENCE&&cardEvidence){
+   cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,evidenceField,e.target.value);
+   if(evidenceField==='date'&&/^(19[4-9]\d|20[0-4]\d)$/.test(String(e.target.value).trim())){
+    cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,'cardYear',e.target.value);
+   }
+  }
+  if(evidenceField==='title'||evidenceField==='brand'||evidenceField==='date')recordBuildDiagnostic('evidenceConfidence',{...cardEvidence?.confidence});
   if(key==='brand'){CARD_STATE?.setIdentity('logoText',e.target.value);if($('cardLogoInput'))$('cardLogoInput').value=e.target.value;}
   if(key==='title'&&CARD_NUMBERING)state().identity.cardNumber=e.target.value?CARD_NUMBERING.number(e.target.value,1):'';
   refreshAutoTemplateLabel();
@@ -315,7 +408,7 @@ function applyReaderSuggestions(data={}){
  CARD_STATE?.applyDetected(data);
  const box=$('readerIdeas');box.innerHTML='';
  const suggestions=[];
- for(const title of (data.titleOptions||[]).slice(0,4))suggestions.push({label:title,apply:()=>{CARD_STATE?.setIdentity('title',title);$('cardTitleInput').value=title;state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';}});
+ for(const title of (data.titleOptions||[]).slice(0,4))suggestions.push({label:title,apply:()=>{CARD_STATE?.setIdentity('title',title);if(CARD_EVIDENCE&&cardEvidence)cardEvidence=CARD_EVIDENCE.addUserOverride(cardEvidence,'title',title);$('cardTitleInput').value=title;state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';}});
  // Style is chosen by the user first. Image reading must never silently change it.
  for(const item of suggestions){
   const b=document.createElement('button');b.type='button';b.className='choiceBtn';b.textContent=item.label;b.addEventListener('click',item.apply);box.appendChild(b);
@@ -366,11 +459,12 @@ async function inspectRenderedCardWithCodePhi(renderedBlob){
   const preview=await prepareTransportImage(renderedBlob,{max:420,maxBytes:180000});
   const data=await blobToDataURI(preview);
   const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html,body{margin:0;background:#151515;min-height:100%}main{min-height:100vh;display:grid;place-items:start center;padding:10px}img{display:block;width:min(100%,384px);height:auto}</style></head><body><main><img src="'+data+'" alt="Finished collectible card preview"></main></body></html>';
-  const response=await fetchWithTimeout(CODE_PHI_INSPECT,{
+  const response=await SERVICES.request('codePhi',{
    method:'POST',
    headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({html,query:'Oracle collectible card visual verification'})
-  },22000);
+   body:JSON.stringify({html,query:'Oracle collectible card visual verification'}),
+   timeoutMs:22000
+  });
   const payload=await response.json().catch(()=>({}));
   if(!response.ok||!payload.ok)return null;
 
@@ -454,11 +548,7 @@ Rules:
 - Keep each button label under 22 characters.
 - Never invent a real athlete or brand unsupported by the locked request or vision read.`;
   async function criticCall(extra='',task='finished-card-critic'){
-   const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({input:input+extra,context:{application:'Oracle Card Studio',task,codePhiBrowser:Boolean(browserInspection)}})
-   },30000);
+   const r=await SERVICES.chat(input+extra,{application:'Oracle Card Studio',task,codePhiBrowser:Boolean(browserInspection)},{timeoutMs:30000});
    const d=await r.json().catch(()=>({}));
    if(!r.ok||!d.ok)throw new Error(String(d.error||'oracle_review_failed'));
    const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -604,7 +694,8 @@ async function readUploadedImage(blob,{review=false}={}){
  form.append('purpose',review?'review':'full-read');
  form.append('detail','full');
  form.append('instructions',FULL_READ_INSTRUCTIONS);
- const r=await fetchWithTimeout(SERVICE+'/v1/image-read',{method:'POST',body:form},review?22000:45000);
+ if(!review)recordBuildDiagnostic('imageReader',{status:'reading',contract:'full-read-v2'});
+ const r=review?await SERVICES.inspectFinishedCard({body:form}):await SERVICES.inspectImage({body:form});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
   const e=new Error('Image reader /v1/image-read '+r.status+': '+String(d.error||d.detail||'image_read_failed'));
@@ -614,6 +705,7 @@ async function readUploadedImage(blob,{review=false}={}){
   const e=new Error('Image reader contract mismatch: full read was not confirmed by the service');
   e.status=r.status;e.route='/v1/image-read';e.contract=d.contract||'';throw e;
  }
+ if(!review)recordBuildDiagnostic('imageReader',{status:'complete',contract:d.contract,passes:Number(d.passes||0)});
  return d;
 }
 
@@ -715,9 +807,13 @@ async function fetchWebContextForImage(data={}){
  const hint=String($('message')?.value||'').trim();
  // Search exact OCR evidence first. GPT may add a second corroborating query,
  // but it is never allowed to replace the literal text lookup.
- if(!visible.length&&!hint)return [];
- const directQuery=[hint,visible.slice(0,5).join(' ')].filter(Boolean).join(' ').trim().slice(0,240);
- const queries=directQuery?[directQuery]:[];
+ if(!visible.length&&!hint&&!firstText(data.titleOptions)&&!firstText(data.contextOptions)&&!firstText(data.brandOptions)&&!asTextArray(data.keywords).length)return [];
+ const directQueries=[
+  [visible.slice(0,5).join(' '),firstText(data.titleOptions),firstText(data.contextOptions)].filter(Boolean).join(' '),
+  [firstText(data.titleOptions),firstText(data.contextOptions),firstText(data.brandOptions),data.cardMaker,data.cardYear].filter(Boolean).join(' '),
+  [hint,asTextArray(data.keywords).slice(0,4).join(' ')].filter(Boolean).join(' ')
+ ].map(q=>q.trim().slice(0,240)).filter(q=>q.length>=3);
+ const queries=[...new Set(directQueries)];
 
  try{
   const planner=`Turn this image evidence into ONE concise corroborating web-search query.
@@ -725,11 +821,7 @@ USER HINT: ${hint||'(none)'}
 VISIBLE IMAGE TEXT: ${visible.join(' | ')||'(none)'}
 SEMANTIC DESCRIPTION: ${String(data.semanticDescription||data.description||'').slice(0,800)}
 Return only the query. Preserve exact visible title/band/product/team words when present. Do not infer a real person's or fictional character's identity from appearance.`;
-  const rr=await fetchWithTimeout(SERVICE+'/v1/chat',{
-   method:'POST',
-   headers:{'Content-Type':'application/json','Accept':'application/json'},
-   body:JSON.stringify({input:planner,context:{application:'Oracle Card Studio',task:'image-web-context-query'}})
-  },20000);
+  const rr=await SERVICES.chat(planner,{application:'Oracle Card Studio',task:'image-web-context-query'},{timeoutMs:20000});
   const dd=await rr.json().catch(()=>({}));
   const q=String(dd.output||dd.output_text||dd.answer||'').replace(/^["']|["']$/g,'').trim().slice(0,240);
   if(rr.ok&&dd.ok&&q&&!queries.some(x=>normalizedName(x)===normalizedName(q)))queries.push(q);
@@ -737,9 +829,7 @@ Return only the query. Preserve exact visible title/band/product/team words when
 
  async function runSearch(query){
   try{
-   const u=new URL(WEB_CONTEXT_SEARCH);
-   u.search=new URLSearchParams({q:query,format:'json',safesearch:'1'});
-   const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'}},10000);
+   const res=await SERVICES.searchWeb(query,{timeoutMs:10000});
    if(!res.ok)return [];
    const json=await res.json().catch(()=>({}));
    return (Array.isArray(json.results)?json.results:[]).slice(0,8).map(x=>({
@@ -750,7 +840,7 @@ Return only the query. Preserve exact visible title/band/product/team words when
   }catch{return []}
  }
 
- const batches=await Promise.all(queries.slice(0,2).map(runSearch));
+ const batches=await Promise.all(queries.slice(0,3).map(runSearch));
  const seen=new Set(),merged=[];
  for(const item of batches.flat()){
   const key=normalizedName(item.url||item.title);
@@ -788,9 +878,7 @@ async function fetchImageSearchComparison(data={},blob=null){
  if(!queries.length)return null;
  async function search(q){
   try{
-   const u=new URL(WEB_CONTEXT_SEARCH);
-   u.search=new URLSearchParams({q,format:'json',categories:'images',safesearch:'1'});
-   const res=await fetchWithTimeout(u.toString(),{headers:{'Accept':'application/json'},cache:'no-store'},12000);
+   const res=await SERVICES.searchWeb(q,{images:true,timeoutMs:12000});
    if(!res.ok)return [];
    const json=await res.json().catch(()=>({}));
    return (Array.isArray(json.results)?json.results:[]).map(x=>({
@@ -823,7 +911,7 @@ async function fetchImageSearchComparison(data={},blob=null){
   form.append('image',transport,'source.jpg');
   form.append('candidates',JSON.stringify(candidates));
   form.append('instructions','Compare the uploaded image with every candidate image. Use printed text, logos, layout, card design, scene and objects as evidence. Report title, context (team / movie / show), brand (studio, franchise, network or card maker), series, date, category and confidence.');
-  const compare=await fetchWithTimeout(SERVICE+'/v1/image-compare',{method:'POST',body:form},45000);
+  const compare=await SERVICES.compareImageCandidates({body:form});
   const out=await compare.json().catch(()=>({}));
   if(!compare.ok||!out.ok)return null;
   if(out.contract!=='image-compare-v2'||out.instructionsApplied!==true)return null;
@@ -832,7 +920,7 @@ async function fetchImageSearchComparison(data={},blob=null){
 }
 
 function mergeImageComparison(data={},comparison=null){
- if(!comparison||Number(comparison.confidence||0)<55)return data;
+ if(!comparison||Number(comparison.confidence||0)<75)return data;
  const prepend=(value,arr)=>[...new Set([String(value||'').trim(),...asTextArray(arr)].filter(Boolean))];
  return {
   ...data,
@@ -899,11 +987,7 @@ Rules:
 - Never substitute a made-up person, brand, team, date, or title.`;
 
  async function attempt(extra='',task='image-data-to-fields'){
-  const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
-   method:'POST',
-   headers:{'Content-Type':'application/json','Accept':'application/json'},
-   body:JSON.stringify({input:inputBase+extra,context:{application:'Oracle Card Studio',task}})
-  },20000);
+  const r=await SERVICES.chat(inputBase+extra,{application:'Oracle Card Studio',task},{timeoutMs:20000});
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.ok)throw new Error(String(d.error||'gpt_image_data_unavailable'));
   const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -970,8 +1054,35 @@ Rules:
   gptFieldConfidence:parsed.confidence||{}
  };
 }
-function applyVisionResult(data,{overwrite=false}={}){
+function applyVisionResult(data,{overwrite=false,source='image-reader'}={}){
  if(!data)return;
+ if(CARD_EVIDENCE&&cardEvidence){
+  let incoming=null;
+  if(source==='image-reader')incoming=CARD_EVIDENCE.fromVision(data);
+  else if(source==='image-comparison')incoming=CARD_EVIDENCE.fromComparison(data.imageSearchComparison||data);
+  else if(source==='gpt-interpreter')incoming=CARD_EVIDENCE.fromGPT({
+   ...data,
+   confidence:data.confidence||data.gptFieldConfidence||{}
+  });
+  else if(source==='web-search')incoming=CARD_EVIDENCE.fromWeb(data);
+  if(incoming)cardEvidence=CARD_EVIDENCE.merge(cardEvidence,incoming);
+  data={
+   ...data,
+   titleOptions:cardEvidence.userOverrides.title?[cardEvidence.userOverrides.title.value]:cardEvidence.title?[cardEvidence.title,...asTextArray(data.titleOptions)]:data.titleOptions,
+   brandOptions:cardEvidence.userOverrides.brand?[cardEvidence.userOverrides.brand.value]:cardEvidence.brand?[cardEvidence.brand,...asTextArray(data.brandOptions)]:data.brandOptions,
+   contextOptions:cardEvidence.userOverrides.context?[cardEvidence.userOverrides.context.value]:cardEvidence.context?[cardEvidence.context,...asTextArray(data.contextOptions)]:data.contextOptions,
+   seriesOptions:cardEvidence.userOverrides.series?[cardEvidence.userOverrides.series.value]:cardEvidence.series?[cardEvidence.series,...asTextArray(data.seriesOptions)]:data.seriesOptions,
+   dateOptions:cardEvidence.userOverrides.date?[cardEvidence.userOverrides.date.value]:cardEvidence.date?[cardEvidence.date,...asTextArray(data.dateOptions)]:data.dateOptions,
+   category:cardEvidence.category||data.category,
+   cardMaker:cardEvidence.cardMaker||data.cardMaker,
+   cardYear:cardEvidence.cardYear||data.cardYear
+  };
+  recordBuildDiagnostic('evidenceConfidence',{...cardEvidence.confidence});
+  recordBuildDiagnostic('evidenceConflicts',(cardEvidence.conflicts||[]).map(conflict=>({
+   field:conflict.field,keptSource:conflict.kept?.source,rejectedSource:conflict.rejected?.source,
+   keptConfidence:conflict.kept?.confidence,rejectedConfidence:conflict.rejected?.confidence
+  })));
+ }
  // Prefilled fields stay short: strip labels, symbols and excess words.
  const clean=(v,n)=>TEMPLATE_DB?TEMPLATE_DB.cleanField(v,n):String(v||'').trim();
  const title=clean(firstText(data.titleOptions),5);
@@ -994,29 +1105,30 @@ function applyVisionResult(data,{overwrite=false}={}){
   date,
   keywords:Array.isArray(data.keywords)?data.keywords:[]
  };
- CARD_STATE?.applyDetected(detected);
- if(title&&(overwrite||!state().identity.title)){
+ CARD_STATE?.applyDetected({...detected,visibleText:data.visibleText||[],logos:data.logos||[],numbers:data.numbers||[],provenance:cardEvidence?.provenance||{},confidence:cardEvidence?.confidence||{},conflicts:cardEvidence?.conflicts||[]});
+ const locked=field=>Boolean(cardEvidence?.userOverrides?.[field]);
+ if(title&&!locked('title')&&(overwrite||!state().identity.title||state().identity.title===state().detected.title)){
   CARD_STATE?.setIdentity('title',title);
   $('cardTitleInput').value=title;
   state().identity.cardNumber=CARD_NUMBERING?.number(title,1)||'';
  }
- if(brand&&(overwrite||!state().identity.brand)){
+ if(brand&&!locked('brand')&&(overwrite||!state().identity.brand||state().identity.brand===state().detected.brand)){
   CARD_STATE?.setIdentity('brand',brand);
   $('cardBrandInput').value=brand;
  }
- if(brand&&!state().identity.logoText){
+ if(brand&&!locked('brand')&&!state().identity.logoText){
   CARD_STATE?.setIdentity('logoText',brand);
   if($('cardLogoInput'))$('cardLogoInput').value=brand;
  }
- if(context&&(overwrite||!state().identity.context)){
+ if(context&&!locked('context')&&(overwrite||!state().identity.context||state().identity.context===state().detected.context)){
   CARD_STATE?.setIdentity('context',context);
   if($('cardContextInput'))$('cardContextInput').value=context;
  }
- if(series&&(overwrite||!state().identity.series)){
+ if(series&&!locked('series')&&(overwrite||!state().identity.series||state().identity.series===state().detected.series)){
   CARD_STATE?.setIdentity('series',series);
   $('cardSeriesInput').value=series;
  }
- if(date&&(overwrite||!state().identity.dateText)){
+ if(date&&!locked('date')&&(overwrite||!state().identity.dateText||state().identity.dateText===state().detected.date)){
   CARD_STATE?.setIdentity('dateText',date);
   $('cardDateInput').value=date;
  }
@@ -1039,21 +1151,30 @@ function normalizedName(value){
 }
 async function maybePrefillVerifiedContext(vision={}){
  if(state().identity.context)return;
+ if(cardEvidence?.userOverrides?.context)return;
  const subject=String(vision.subjectType||'').toLowerCase();
  const keywords=(vision.keywords||[]).join(' ').toLowerCase();
  if(!/baseball|athlete|player|pitcher|catcher|fielder|batter|mlb/.test(subject+' '+keywords))return;
  const title=(state().identity.title||firstText(vision.titleOptions)||'').trim();
  if(!title)return;
+ const printedName=asTextArray(vision.visibleText).some(text=>normalizedName(text)===normalizedName(title));
+ const explicitHint=normalizedName($('message')?.value||'').includes(normalizedName(title))&&/baseball|mlb|player|pitcher|catcher|fielder|batter/i.test($('message')?.value||'');
+ const explicitField=cardEvidence?.userOverrides?.title?.value===title&&activeCategory()==='sports';
+ if(!printedName&&!explicitHint&&!explicitField)return;
  try{
   const intel=await fetchPlayerIntel(title);
   const actual=intel?.player?.fullName||'';
-  if(!actual||normalizedName(actual)!==normalizedName(title))return;
+  if(!actual||normalizedName(actual)!==normalizedName(title)){recordBuildDiagnostic('playerIntel','unavailable');return}
+  cardEvidence=CARD_EVIDENCE?.merge(cardEvidence,{playerIntel:intel})||cardEvidence;
   const latest=(intel.highlights||[])[0]||(intel.seasons||[]).slice(-1)[0]||null;
   const team=String(latest?.team||'').trim();
-  if(!team)return;
+  if(!team||state().identity.context||cardEvidence?.userOverrides?.context)return;
   CARD_STATE?.setIdentity('context',team);
   if($('cardContextInput'))$('cardContextInput').value=team;
- }catch{}
+  cardEvidence=CARD_EVIDENCE?.merge(cardEvidence,{fields:{context:{value:team,confidence:75,source:'player-intel',evidence:['verified player card-intel']}}})||cardEvidence;
+  recordBuildDiagnostic('playerIntel','available');
+  recordBuildDiagnostic('evidenceConfidence',{...cardEvidence?.confidence});
+ }catch{recordBuildDiagnostic('playerIntel','unavailable')}
 }
 
 async function autoCropDominantImage(file){
@@ -1195,6 +1316,8 @@ function resetImageDataForNewSource(){
   if($(id))$(id).value='';
  }
  lastIntel=null;lastIntent=null;lastPlan=null;lastDescription='';lastVision=null;lastWebContext=[];lastImageComparison=null;lastTemplateRefs=[];
+ cardEvidence=CARD_EVIDENCE?.create()||null;
+ resetBuildDiagnostics();
  refreshAutoTemplateLabel();
 }
 
@@ -1209,23 +1332,36 @@ async function retryCurrentImageRead(){
  if($('retryReadBtn'))$('retryReadBtn').style.display='none';
  $('status').textContent='Retrying GPT image read…';
  try{
+  pipelineProgress('imageRead','active');
   const visionRaw=await readUploadedImage(sourceFile);
   if(generation!==photoReadGeneration)return;
   const normalizedVision=normalizeVisionPayload(visionRaw||{});
   lastVision=normalizedVision;
-  applyVisionResult(normalizedVision,{overwrite:true});
+  pipelineProgress('imageRead','complete');
+  applyVisionResult(normalizedVision,{overwrite:true,source:'image-reader'});
+  pipelineProgress('fieldsPrefilled','complete');
   const [webContext,imageComparison]=await Promise.all([
    fetchWebContextForImage(normalizedVision),
    fetchImageSearchComparison(normalizedVision,sourceFile)
   ]);
   lastWebContext=webContext;
   lastImageComparison=imageComparison;
+  cardEvidence=CARD_EVIDENCE?.merge(cardEvidence,CARD_EVIDENCE.fromWeb(webContext))||cardEvidence;
+  pipelineProgress('webContext','complete',webContext.length+' matches');
+  recordBuildDiagnostic('webSearch',{status:webContext.length?'complete':'no-results-or-unavailable',matches:webContext.length});
   const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
-  applyVisionResult(enrichedVision,{overwrite:true});
-  const vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);
+  if(imageComparison&&Number(imageComparison.confidence||0)>=75){
+   applyVisionResult(enrichedVision,{overwrite:true,source:'image-comparison'});
+   pipelineProgress('imageComparison','complete',String(imageComparison.candidateCount||0)+' candidates');
+  }else pipelineProgress('imageComparison','unavailable','No sufficiently confident comparison');
+  recordBuildDiagnostic('comparison',{status:imageComparison&&Number(imageComparison.confidence||0)>=75?'complete':'unavailable',candidates:Number(imageComparison?.candidateCount||0),confidence:Number(imageComparison?.confidence||0)});
+  pipelineProgress('evidenceMerged','complete');
+  let vision={};
+  try{vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);recordBuildDiagnostic('gptPlanner','available')}
+  catch(error){recordBuildDiagnostic('gptPlanner','unavailable');recordBuildDiagnostic('fallbackReason',diagnosticError(error))}
   if(generation!==photoReadGeneration)return;
   lastVision={...normalizedVision,...vision};
-  applyVisionResult(vision,{overwrite:true});
+  if(Object.keys(vision).length)applyVisionResult(vision,{overwrite:true,source:'gpt-interpreter'});
   imageReadState='ready';
   const bits=[
    state().identity.title,
@@ -1233,9 +1369,11 @@ async function retryCurrentImageRead(){
    state().identity.brand,
    state().identity.series
   ].filter(Boolean);
-  $('status').textContent=bits.length?'GPT image data ready: '+bits.join(' · '):'GPT image read finished. Add any missing detail you want in the fields.';
+  $('status').textContent=bits.length?'Image evidence ready: '+bits.join(' · '):'Image read finished. Add any missing detail you want in the fields.';
  }catch(error){
   imageReadState='error';
+  recordBuildDiagnostic('imageReader',{status:'unavailable',contract:'full-read-v2',error:diagnosticError(error)});
+  pipelineProgress('imageRead','unavailable',String(error?.message||error));
   if($('retryReadBtn'))$('retryReadBtn').style.display='inline-block';
   $('status').textContent='Image read failed: '+String(error?.message||error||'unknown error')+'. Create Card is still available.';
  }
@@ -1263,57 +1401,80 @@ async function setPhoto(file){
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
  imageReadState='reading';
+ pipelineProgress('imageReceived','complete');
+ pipelineProgress('imageRead','active');
  setCreateAvailability(true,'Create Card');
  if($('retryReadBtn'))$('retryReadBtn').style.display='none';
- $('status').textContent='Image uploaded. GPT is reading it and filling the card data. Create Card will wait for this read before planning.';
+ $('status').textContent='Image uploaded. Reading visible text and design evidence now; supported fields will populate before the build.';
 
  // The first build waits for this read so the renderer cannot race ahead with
  // blank or stale fields. A read failure still leaves the user able to create.
  imageReadPromise=(async()=>{
   try{
+   pipelineProgress('imageRead','active');
    const visionRaw=await readUploadedImage(file);
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    const normalizedVision=normalizeVisionPayload(visionRaw||{});
    lastVision=normalizedVision;
+   pipelineProgress('imageRead','complete');
 
    // Put every supported AI-read fact into the visible fields immediately.
    // GPT then acts as manager and refines/organizes those same facts.
-   applyVisionResult(normalizedVision,{overwrite:true});
+   applyVisionResult(normalizedVision,{overwrite:true,source:'image-reader'});
+   pipelineProgress('fieldsPrefilled','complete');
    $('status').textContent='AI image data received. Checking visible text and web context…';
+   pipelineProgress('webContext','active');
+   pipelineProgress('imageComparison','active');
    const [webContext,imageComparison]=await Promise.all([
     fetchWebContextForImage(normalizedVision),
     fetchImageSearchComparison(normalizedVision,file)
    ]);
    lastWebContext=webContext;
    lastImageComparison=imageComparison;
+   cardEvidence=CARD_EVIDENCE?.merge(cardEvidence,CARD_EVIDENCE.fromWeb(webContext))||cardEvidence;
+   pipelineProgress('webContext','complete',webContext.length+' matches');
+   recordBuildDiagnostic('webSearch',{status:webContext.length?'complete':'no-results-or-unavailable',matches:webContext.length});
    const enrichedVision=mergeImageComparison(normalizedVision,imageComparison);
-   applyVisionResult(enrichedVision,{overwrite:true});
+   if(imageComparison&&Number(imageComparison.confidence||0)>=75){
+    applyVisionResult(enrichedVision,{overwrite:true,source:'image-comparison'});
+    pipelineProgress('imageComparison','complete',String(imageComparison.candidateCount||0)+' candidates');
+   }else pipelineProgress('imageComparison','unavailable','No sufficiently confident comparison');
+   recordBuildDiagnostic('comparison',{status:imageComparison&&Number(imageComparison.confidence||0)>=75?'complete':'unavailable',candidates:Number(imageComparison?.candidateCount||0),confidence:Number(imageComparison?.confidence||0)});
+   pipelineProgress('evidenceMerged','complete');
+   pipelineProgress('fieldsPrefilled','complete');
+   lastTemplateSpec=TEMPLATE_DB?.compileTemplateSpec(activeTemplate())||null;
+   recordBuildDiagnostic('templateId',activeTemplate()?.id||'');
+   pipelineProgress('templateSelected','complete');
+   pipelineProgress('designSpec','complete');
    $('status').textContent=imageComparison?.compared
     ?'SearXNG image comparison finished. GPT is organizing the verified fields…'
     :webContext.length?'Web context found. GPT is organizing the fields…':'GPT is organizing the image fields…';
 
-   const vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);
+   let vision={};
+   try{vision=await completeVisionIdentity(enrichedVision,webContext,imageComparison);recordBuildDiagnostic('gptPlanner','available')}
+   catch(error){recordBuildDiagnostic('gptPlanner','unavailable');recordBuildDiagnostic('fallbackReason',diagnosticError(error))}
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    lastVision={...normalizedVision,...vision};
-   applyVisionResult(vision,{overwrite:true});
+   if(Object.keys(vision).length)applyVisionResult(vision,{overwrite:true,source:'gpt-interpreter'});
    if($('retryReadBtn'))$('retryReadBtn').style.display='none';
 
    const autoTitle=state().identity.title||firstText(vision.titleOptions);
-   const scanBits=[autoTitle,firstText(vision.contextOptions),firstText(vision.brandOptions)].filter(Boolean);
+   const scanBits=[autoTitle,state().identity.context||firstText(vision.contextOptions),state().identity.brand||firstText(vision.brandOptions)].filter(Boolean);
    $('status').textContent=scanBits.length
-    ? 'GPT read: '+scanBits.join(' · ')+'. Check or edit the fields, then tell GPT what you want changed.'
-    : 'GPT finished reading the image. Add any missing detail in the fields or instruction box.';
+    ? (Object.keys(vision).length?'Image evidence ready: ':'Image evidence ready; GPT enrichment unavailable: ')+scanBits.join(' · ')+'. Check or edit the fields, then tell GPT what you want changed.'
+    : 'Image analysis finished. Add any missing detail in the fields or instruction box.';
 
-   maybePrefillVerifiedContext(vision).then(()=>{
-    if(generation!==photoReadGeneration||sourceFile!==file)return;
-    const name=state().identity.title||firstText(vision.titleOptions);
-    $('status').textContent='GPT image data ready'+(name?': '+name:'')+'. Now add only the changes you want in the instruction box.';
-   }).catch(()=>{});
+   await maybePrefillVerifiedContext(vision);
+   if(generation!==photoReadGeneration||sourceFile!==file)return;
+   const name=state().identity.title||firstText(vision.titleOptions);
+   $('status').textContent='Image evidence ready'+(name?': '+name:'')+'. Now add only the changes you want in the instruction box.';
   }catch(error){
    if(generation!==photoReadGeneration||sourceFile!==file)return;
    imageReadState='error';
+   recordBuildDiagnostic('imageReader',{status:'unavailable',contract:'full-read-v2',error:diagnosticError(error)});
+   pipelineProgress('imageRead','unavailable',String(error?.message||error));
    if($('retryReadBtn'))$('retryReadBtn').style.display='inline-block';
-   $('status').textContent='GPT image read stopped: '+String(error?.message||error||'unknown image-read error')+'. Create Card is still available.';
+   $('status').textContent='Image evidence read stopped: '+String(error?.message||error||'unknown image-read error')+'. Create Card is still available.';
   }finally{
    if(generation===photoReadGeneration&&sourceFile===file){
     if(imageReadState!=='error')imageReadState='ready';
@@ -1355,7 +1516,9 @@ async function setReference(file){
  referencePreviewUrl=URL.createObjectURL(referenceFile);
  $('referenceThumb').src=referencePreviewUrl;$('referenceThumb').style.display='block';$('referenceText').style.display='none';
  $('referenceControls').style.display='flex';
- $('status').textContent=prepared.cropped?'Reference image cropped automatically.':'Reference card ready.';
+ $('status').textContent=prepared.cropped
+  ?'Reference image cropped automatically. Two-image builds route through Workers AI; ComfyUI accepts one input.'
+  :'Reference card ready. Two-image builds route through Workers AI; ComfyUI accepts one input.';
 }
 $('referencePhoto').addEventListener('change',e=>setReference(e.target.files?.[0]||null));
 $('referenceBox').addEventListener('click',e=>{if(!e.target.closest('button'))openReferencePicker()});
@@ -1364,7 +1527,16 @@ $('replaceReference').addEventListener('click',e=>{e.stopPropagation();openRefer
 $('removeReference').addEventListener('click',e=>{e.stopPropagation();setReference(null)});
 
 function resetMonitor(){
- document.querySelectorAll('.buildStep').forEach(el=>{el.classList.remove('active','done','error');el.querySelector('.state').textContent='Waiting'});
+ document.querySelectorAll('.buildStep').forEach(el=>{
+  const saved=buildDiagnostics.pipeline?.[el.dataset.stage];
+  el.classList.remove('active','done','error','optional');
+  if(saved?.status==='active')el.classList.add('active');
+  else if(saved?.status==='complete')el.classList.add('done');
+  else if(saved?.status==='unavailable')el.classList.add('optional');
+  else if(saved?.status==='error')el.classList.add('error');
+  const stateEl=el.querySelector('.state');
+  stateEl.textContent=saved?.status==='active'?'Working':saved?.status==='complete'?'Done':saved?.status==='unavailable'?'Optional':'Waiting';
+ });
  $('buildNote').textContent='Starting…';
 }
 function showMonitor(){
@@ -1376,6 +1548,8 @@ function stage(name,state,note=''){
  el.classList.remove('active','done','error');el.classList.add(state);
  el.querySelector('.state').textContent=state==='active'?'Working':state==='done'?'Done':'Check';
  if(note)$('buildNote').textContent=note;
+ const flow={plan:'gptEnrichment',render:'rendering',finish:'exactTextComposition',iterate:'visualValidation'};
+ if(flow[name])pipelineProgress(flow[name],state==='active'?'active':state==='done'?'complete':'error');
 }
 
 async function resizeImage(file,max=512,quality=.94){
@@ -1441,7 +1615,7 @@ async function extractCardIntent(description){
 {"playerQuery":"","teamQuery":"","explicitYear":"","cardType":"","subset":"","historicalAngle":""}
 Request: ${description}
 Only use playerQuery when the request explicitly names a baseball player. Never infer one from unrelated subjects.`;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'card-entity-intent'}})},4500);
+ const r=await SERVICES.chat(input,{application:'Oracle Card Studio',task:'card-entity-intent'},{timeoutMs:4500});
  const d=await r.json().catch(()=>({}));
  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
  return parsed||{playerQuery:'',teamQuery:'',explicitYear:'',cardType:'',subset:'',historicalAngle:''};
@@ -1449,7 +1623,7 @@ Only use playerQuery when the request explicitly names a baseball player. Never 
 
 async function fetchPlayerIntel(name){
  if(!name)return null;
- const r=await fetchWithTimeout(SERVICE+'/v1/card-intel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})},4500);
+ const r=await SERVICES.fetchCardIntel(name);
  const d=await r.json().catch(()=>({}));
  return r.ok&&d.ok?d:null;
 }
@@ -1529,7 +1703,7 @@ Rules:
 - backStyle should describe a matching period-correct card-back design.
 - renderPrompt must be a single strong image-editing prompt that includes every important requirement above and explicitly says to transform reference image 0 into the finished card artwork.
 `;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'structured-card-art-direction'}})},25000);
+ const r=await SERVICES.chat(input,{application:'Oracle Card Studio',task:'structured-card-art-direction'},{timeoutMs:25000});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('design_unavailable');
  const raw=String(d.output||d.output_text||d.answer||'').trim();
@@ -1567,11 +1741,7 @@ Rules:
 - Do not force sports semantics onto music, art, products or other non-sports subjects.
 - Keep the full sharp card perimeter visible and produce one finished collectible card, not a mockup or template.
 - Do not ask the user questions.`;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
-  method:'POST',
-  headers:{'Content-Type':'application/json','Accept':'application/json'},
-  body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'compact-card-plan-recovery'}})
- },30000);
+ const r=await SERVICES.chat(input,{application:'Oracle Card Studio',task:'compact-card-plan-recovery'},{timeoutMs:30000});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('compact_design_unavailable: '+String(d.error||r.status));
  const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -1612,7 +1782,7 @@ Rules:
 - Preserve useful original inventions from the reference such as unusual foil, rarity cues or collector details when they improve the new card.
 - renderPrompt must explicitly tell the image editor to use reference image 0 for subject identity and reference image 1 for design/style.
 `;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'reference-card-design-analysis'}})},25000);
+ const r=await SERVICES.chat(input,{application:'Oracle Card Studio',task:'reference-card-design-analysis'},{timeoutMs:25000});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('reference_design_unavailable');
  const plan=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -1890,11 +2060,10 @@ async function blobToDataURI(blob){
 
 async function renderWithComfy(blob,prompt,endpoint=COMFY_RENDERER_ENDPOINT){
  const imageDataURI=await blobToDataURI(blob);
- const r=await fetchWithTimeout(endpoint,{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({imageDataURI,prompt,width:768,height:1024,denoise:.28})
- },150000);
+ const r=await SERVICES.renderComfy({
+  body:JSON.stringify({imageDataURI,prompt:String(prompt||'')+'\n'+ARTWORK_ONLY_INSTRUCTION,width:768,height:1024,denoise:.28}),
+  local:endpoint===SERVICES.ENDPOINTS.localComfy
+ });
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
   const detail=String(d.error||d.detail||'comfy_renderer_failed');
@@ -1912,9 +2081,9 @@ async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
   const designTransport=await prepareTransportImage(designBlob,{max:480,maxBytes:800000});
   form.append('design_reference',designTransport,'design-reference.jpg');
  }
- form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.'));
+ form.append('prompt',String(prompt||description||'Create a polished collectible trading card from the uploaded image.')+'\n'+ARTWORK_ONLY_INSTRUCTION);
  form.append('request',String(description||prompt||'').slice(0,1800));
- const r=await fetchWithTimeout(SERVICE+'/v1/image',{method:'POST',body:form},150000);
+ const r=await SERVICES.renderWorkersAI({body:form});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok){
   const attempts=Array.isArray(d.attemptErrors)?d.attemptErrors.map(x=>String(x?.model||'model')+': '+String(x?.error||'error')).join(' | '):'';
@@ -1951,11 +2120,7 @@ Rules:
 - If the failure suggests model/provider availability, write a renderer-neutral prompt suitable for the next capable image model.
 - Do not fall back to canvas, generic templates, placeholder fields or fake data.
 `;
- const r=await fetchWithTimeout(SERVICE+'/v1/chat',{
-  method:'POST',
-  headers:{'Content-Type':'application/json','Accept':'application/json'},
-  body:JSON.stringify({input,context:{application:'Oracle Card Studio',task:'renderer-recovery-manager'}})
- },25000);
+ const r=await SERVICES.chat(input,{application:'Oracle Card Studio',task:'renderer-recovery-manager'},{timeoutMs:25000});
  const d=await r.json().catch(()=>({}));
  if(!r.ok||!d.ok)throw new Error('gpt_renderer_recovery_unavailable: '+String(d.error||r.status));
  const parsed=extractJSON(String(d.output||d.output_text||d.answer||''));
@@ -1966,10 +2131,10 @@ Rules:
 async function renderCard(blob,prompt,description,designBlob=null){
  if(!designBlob){
   try{
-   const health=await fetchWithTimeout('/api/renderer/health',{},1500);
+   const health=await SERVICES.request('localHealth',{timeoutMs:1500});
    const status=await health.json().catch(()=>({}));
    if(health.ok&&status.ok&&status.configured){
-    const out=await renderWithComfy(blob,prompt,'/api/render/comfy');
+    const out=await renderWithComfy(blob,prompt,SERVICES.ENDPOINTS.localComfy);
     out.rendererPath='local-comfy-reference-image';
     return out;
    }
@@ -2025,8 +2190,7 @@ async function createCard(count=1,mode='original'){
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
 
- // Do not race the image reader. The first render must use the data extracted
- // from this exact upload, especially visible text such as a band/product/team name.
+ // Do not start a build until this upload's evidence pass is settled.
  const freeform=$('message').value.trim();
 
  setBusy(true,count===3?'Creating 3…':'Creating…');
@@ -2035,13 +2199,8 @@ async function createCard(count=1,mode='original'){
 
  try{
   if(imageReadState==='reading'&&imageReadPromise){
-   const s=state();
-   const titleNow=String(s.identity.title||s.detected.title||'').trim();
-   const literalNow=asTextArray(lastVision?.visibleText);
-   if(!titleNow&&!literalNow.length){
-    stage('prepare','active','Reading the exact upload and comparing SearXNG images before planning…');
-    await imageReadPromise;
-   }
+   stage('prepare','active','Completing image evidence before planning…');
+   await imageReadPromise;
   }
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
   autoMode=false;autoBacks.clear();backResult='';
@@ -2050,7 +2209,12 @@ async function createCard(count=1,mode='original'){
   lastBlob=sourceFile;
   lastReferenceBlob=mode==='reference'?referenceFile:null;
   buildMode=mode;
+  pipelineProgress('templateSelected','active');
   lastTemplateRefs=await fetchTemplateReferences(activeTemplate());
+  lastTemplateSpec=TEMPLATE_DB?.compileTemplateSpec(activeTemplate())||null;
+  recordBuildDiagnostic('templateId',activeTemplate()?.id||'');
+  pipelineProgress('templateSelected','complete');
+  pipelineProgress('designSpec','complete');
   lastDescription=builderDescription(freeform)||'Build collectible card';
   stage('prepare','done');
   await nextPaint();
@@ -2074,12 +2238,15 @@ async function createCard(count=1,mode='original'){
       renderPrompt:'Transform reference image 0 into one finished collectible card. Preserve the exact uploaded subject and supported factual details. Keep the full card perimeter visible. Do not invent identity, statistics, branding or generated lettering. Follow this locked request:\n'+lastDescription
      };
      lastPlan.planningSource='local-request';
+     recordBuildDiagnostic('gptPlanner','unavailable');
+     recordBuildDiagnostic('fallbackReason','GPT planning unavailable; locked local request used');
     }
     if(mode==='reference')lastPlan.renderPrompt+=' Use reference image 1 for design language only; preserve the subject from reference image 0. Do not copy logos or literal text from the design reference.';
    }
   }
   renderSkillsPanel(lastAbilityRoute);
   stage('plan','done',lastPlan.planningSource==='local-request'?'Locked request plan ready; GPT is unavailable.':'GPT plan ready.');
+  if(lastPlan.planningSource!=='local-request')recordBuildDiagnostic('gptPlanner','available');
   await nextPaint();
 
   for(let i=0;i<count;i++){
@@ -2087,17 +2254,22 @@ async function createCard(count=1,mode='original'){
    await nextPaint();
    const renderPrompt=count>1?variationPrompt(lastPlan,'variation',i,''):lastPlan.renderPrompt;
    const out=await renderCard(lastBlob,renderPrompt,lastDescription,lastReferenceBlob);
+   recordBuildDiagnostic('renderer',out.rendererPath||'unknown');
+   if(out.recoveryReason)recordBuildDiagnostic('fallbackReason','GPT-managed renderer recovery used');
    stage('render','done');
    stage('finish','active','Adding card text and collector details…');
    await nextPaint();
    const finished=await finishOutput(out,{review:false,display:false});
+   pipelineProgress('finish','complete');
    stage('finish','done');
    stage('iterate','active','GPT is inspecting the finished card and preparing repairs…');
    const iteration=await iterateFinishedCardOnce(finished,{allowRepair:true});
+   recordBuildDiagnostic('validator',iteration.critique?'available':'unavailable');
    stage('iterate','done',iteration.repaired?'GPT repaired one blocking defect and rechecked the card.':iteration.critique?'GPT visual review ready.':'Card finished. Manual refinement controls are ready.');
   }
 
   if(results.length)await showResult(results.length-1,{review:false});
+  pipelineProgress('complete','complete');
   $('status').innerHTML='<strong>'+count+' card'+(count>1?'s':'')+' created.</strong>';
 
   // Keep the first successful card stable. Any deeper sports-data enrichment is user-triggered later,
@@ -2235,7 +2407,7 @@ $('retryBtn').addEventListener('click',async()=>{
    const normalized=normalizeVisionPayload(raw);
    const webContext=await fetchWebContextForImage(normalized);
    const vision=await completeVisionIdentity(normalized,webContext);
-   applyVisionResult(vision,{overwrite:true});
+   applyVisionResult(vision,{overwrite:true,source:'gpt-interpreter'});
    await updateReviewPanel(results[activeResult]||results.at(-1)||'');
   }
   return;

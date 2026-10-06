@@ -65,3 +65,16 @@ test('template prompt forbids rendered text and reserves the layout spots', () =
   assert.match(p, /lower-right corner clear/);
   assert.match(p, /Do not draw any text/);
 });
+
+test('templates compile into distinct executable design specifications',()=>{
+ const vintage=DB.compileTemplateSpec(DB.get('topps-1971'));
+ const modern=DB.compileTemplateSpec(DB.get('topps-2026'));
+ assert.equal(vintage.aspectRatio,5/7);
+ assert.equal(vintage.borderGeometry,'black');
+ assert.equal(vintage.cornerTreatment,'sharp');
+ assert.equal(vintage.numberingLocation,'lower-right above name plate');
+ assert.ok(vintage.imageCropRegion.width>0&&vintage.imageCropRegion.height>0);
+ assert.notEqual(vintage.yearSetTreatment,modern.yearSetTreatment);
+ assert.notEqual(vintage.backgroundTreatment,modern.backgroundTreatment);
+ assert.match(DB.promptFor(DB.get('topps-1971')),/sharp card corners/);
+});
