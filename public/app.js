@@ -1334,9 +1334,8 @@ async function renderWithWorkersAI(blob,prompt,description='',designBlob=null){
 }
 
 async function renderCard(blob,prompt,description,designBlob=null){
- // Primary path is the already-live Cloudflare Workers AI reference-image renderer.
- // Comfy remains a second path when an external GPU renderer is actually configured.
- // The deterministic compositor is the last-resort safety fallback only.
+ // A finished card must come from an actual image renderer.
+ // Never disguise the simple canvas compositor as a successful AI-designed card.
  try{
   const out=await renderWithWorkersAI(blob,prompt,description,designBlob);
   out.rendererPath='workers-ai-reference-image';
@@ -1348,10 +1347,12 @@ async function renderCard(blob,prompt,description,designBlob=null){
    out.rendererPath='comfy';
    return out;
   }catch(comfyError){
-   console.warn('Comfy renderer unavailable; using exact-source fallback',comfyError);
-   const out=await renderExactCard(blob);
-   out.rendererPath='exact-source-fallback';
-   return out;
+   console.warn('No AI renderer available',comfyError);
+   const e=new Error('AI image renderer unavailable. The builder stopped instead of showing a fake finished template.');
+   e.code='ai_renderer_unavailable';
+   e.workersError=String(workersError?.message||workersError||'');
+   e.comfyError=String(comfyError?.message||comfyError||'');
+   throw e;
   }
  }
 }
