@@ -927,25 +927,29 @@ async function stampFrontIdentity(dataURI){
 async function stampCollectorMarks(dataURI){
  const s=state();
  if(!s.selections.oneOfOne)return dataURI;
- const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('collector_mark_load_failed'))});
+ const img=new Image();img.src=dataURI;
+ await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('collector_mark_load_failed'))});
+
+ const mark=new Image();
+ mark.src='./public/assets/one-of-one-gold.svg?v=20261005-1';
+ await new Promise((resolve,reject)=>{mark.onload=resolve;mark.onerror=()=>reject(new Error('collector_asset_load_failed'))});
+
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+
  const footer=Math.max(34,Math.round(canvas.height*.044));
- const fontSize=Math.max(13,Math.round(canvas.width*.021));
- const x=canvas.width-Math.round(canvas.width*.045);
- const y=canvas.height-footer-Math.round(canvas.height*.028);
- const text='1/1';
+ const targetW=Math.max(34,Math.round(canvas.width*.055));
+ const targetH=Math.round(targetW*(72/180));
+ const insetX=Math.max(16,Math.round(canvas.width*.026));
+ const insetY=Math.max(10,Math.round(canvas.height*.018));
+ const x=canvas.width-insetX-targetW;
+ const y=canvas.height-footer-insetY-targetH;
+
  ctx.save();
- ctx.textAlign='right';ctx.textBaseline='alphabetic';
- ctx.font='900 italic '+fontSize+'px Arial, Helvetica, sans-serif';
- ctx.lineWidth=Math.max(1,Math.round(canvas.width*.0016));
- ctx.strokeStyle='rgba(70,45,4,.72)';
- ctx.shadowColor='rgba(0,0,0,.35)';ctx.shadowBlur=Math.max(1,Math.round(canvas.width*.002));ctx.shadowOffsetY=1;
- const grad=ctx.createLinearGradient(x-Math.round(canvas.width*.07),y-fontSize,x,y);
- grad.addColorStop(0,'#8c6717');grad.addColorStop(.28,'#f6e39a');grad.addColorStop(.52,'#b48824');grad.addColorStop(.76,'#fff0ad');grad.addColorStop(1,'#8c6717');
- ctx.strokeText(text,x,y);
- ctx.fillStyle=grad;ctx.fillText(text,x,y);
+ ctx.globalAlpha=.96;
+ ctx.drawImage(mark,x,y,targetW,targetH);
  ctx.restore();
+
  return canvas.toDataURL('image/jpeg',.97);
 }
 
