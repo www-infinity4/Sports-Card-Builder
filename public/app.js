@@ -215,6 +215,7 @@ renderSkillsPanel(lastAbilityRoute);
 
 function setBusy(busy,label='Creating…'){
  $('make').disabled=busy;$('make3').disabled=busy;$('buildLike').disabled=busy;
+ if($('autoMake'))$('autoMake').disabled=busy;if($('auto3'))$('auto3').disabled=busy;
  $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;$('backBtn').disabled=busy;
  if(busy){$('make').textContent=label;$('make3').textContent='Working…'}
  else{$('make').textContent='Create Card';$('buildLike').textContent='Build Like This Card';$('make3').textContent='Create 3'}
@@ -366,7 +367,7 @@ async function updateReviewPanel(src=''){
  const variation=$('moreBtn');
  const back=$('backBtn');
  $('reviewPanel').style.display='block';
- back.style.display=state().selections.buildBack?'inline-block':'none';
+ back.style.display=state().selections.buildBack?'inline-block':'none';back.textContent='Build Back';primary.style.display='inline-block';
 
  if(!review.complete){
   status.innerHTML='<strong>Oracle is reviewing this exact card while image identity finishes…</strong>';
@@ -397,6 +398,7 @@ async function updateReviewPanel(src=''){
 
 async function showResult(index,{review=true}={}){
  const src=results[index];if(!src)return;
+ if(autoBacks.has(src))backResult=autoBacks.get(src);
  if($('resultHeading'))$('resultHeading').textContent='Finished design';
  activeResult=index;$('resultImage').src=src;$('resultImage').style.display='block';$('empty').style.display='none';
  $('buildMonitor').style.display='none';$('resultActions').style.display='flex';$('newCard').style.display='inline-block';$('sideSwitch').style.display=backResult?'flex':'none';currentSide='front';$('frontSide').classList.add('active');$('backSide').classList.remove('active');
@@ -1777,6 +1779,7 @@ async function createCard(count=1,mode='original'){
    }
   }
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
+  autoMode=false;autoBacks.clear();backResult='';
 
   stage('prepare','active','Using the exact uploaded image…');
   lastBlob=sourceFile;
@@ -1835,6 +1838,94 @@ async function createCard(count=1,mode='original'){
  }
 }
 
+const AUTO_CARD=window.OracleAutoCard||null;
+let autoMode=false;
+let lastAutoSpec=null;
+const autoTitles=new Map();
+const autoBacks=new Map();
+
+function autoStageFor(message){
+ const m=String(message||'');
+ if(/^Pulling/.test(m)){stage('prepare','done');stage('plan','active',m);return}
+ if(/artwork|image model|reference renderer|Uploaded photo/i.test(m)){stage('prepare','done');stage('plan','done');stage('render','active',m);return}
+ if(/^Composing/.test(m)){stage('render','done');stage('finish','active',m);return}
+ stage('prepare','active',m);
+}
+
+function fileSlug(text){return String(text||'card').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80)||'card';}
+
+function downloadCurrentCard(){
+ const src=$('resultImage').src;
+ if(!src||!/^data:image\//.test(src))return;
+ const a=document.createElement('a');
+ a.href=src;
+ const ext=(src.match(/^data:image\/(png|jpeg|webp)/)||[])[1]||'jpg';
+ const front=results[activeResult]||src;
+ a.download=fileSlug((autoTitles.get(front)||autoTitles.get(src)||state().identity.title||'card')+'-'+currentSide)+'.'+(ext==='jpeg'?'jpg':ext);
+ document.body.appendChild(a);a.click();a.remove();
+}
+
+function showAutoReport(spec,artSource){
+ const status=$('reviewStatus');
+ $('reviewPanel').style.display='block';
+ status.textContent='';
+ const strong=document.createElement('strong');strong.textContent=spec.title;status.appendChild(strong);
+ const v=spec.value;
+ const art={upload:'your uploaded photo',ai:'AI-generated artwork','reference-ai':'reference-rendered artwork',procedural:'painted studio artwork'}[artSource]||'artwork';
+ status.appendChild(document.createTextNode(' · '+v.tier+' · Value Index '+v.index+'/100 · '+v.serialText+' · Odds '+v.oddsText+' · Built from '+art+'.'));
+ $('retryBtn').style.display='none';$('tightenBtn').style.display='none';
+ $('moreBtn').style.display='inline-block';$('moreBtn').textContent='Pull Another';$('moreBtn').dataset.action='auto';$('moreBtn').dataset.instruction='';
+ $('backBtn').style.display='inline-block';$('backBtn').textContent='Show Back';
+}
+
+async function autoCreate(count=1,{append=false}={}){
+ if(!AUTO_CARD){$('status').textContent='Auto Card engine did not load. Refresh the page.';return}
+ const s=state();
+ const typed=$('message').value.trim();
+ const title=String(s.identity.title||'').trim();
+ const context=String(s.identity.context||'').trim();
+ setBusy(true,count>1?'Auto ×'+count+'…':'Auto building…');
+ showMonitor();
+ if(!append){results=[];activeResult=-1;autoBacks.clear();backResult='';renderVariationBar();}
+ autoMode=true;
+ $('resultActions').style.display='none';
+ try{
+  for(let i=0;i<count;i++){
+   stage('prepare','active',count>1?'Pulling card '+(i+1)+' of '+count+'…':'Reading your request…');
+   // The engine picks everything itself; typed text / identity fields only steer it.
+   const text=[typed,context,title&&!AUTO_CARD.parseIntent(typed).player?title:''].filter(Boolean).join(' ');
+   const out=await AUTO_CARD.build({
+    text,
+    photo:sourceFile||null,
+    brand:String(s.identity.brand||'').trim().toUpperCase().slice(0,24)||undefined,
+    fetchIntel:name=>fetchPlayerIntel(name).catch(()=>null),
+    renderReference:(blob,prompt)=>renderWithWorkersAI(blob,prompt+' Turn this rough painted layout into a realistic, sharp sports photograph. Keep the pose, uniform colors and framing. No text, no logos.',prompt),
+    artTimeoutMs:45000,
+    onStatus:autoStageFor
+   });
+   stage('finish','done');
+   stage('iterate','done','Card '+(i+1)+' finished: '+out.spec.value.tier+'.');
+   results.push(out.front);
+   autoBacks.set(out.front,out.back);
+   autoTitles.set(out.front,out.spec.title);
+   lastAutoSpec=out.spec;
+   if(out.warning)console.warn('Auto card artwork fallback',out.warning);
+   if(count===1||i===count-1){
+    await showResult(results.length-1,{review:false});
+    showAutoReport(out.spec,out.artSource);
+   }
+  }
+  $('status').innerHTML='<strong>'+count+' auto card'+(count>1?'s':'')+' pulled.</strong> Tap Back to see stats, Pull Another for a new pack.';
+ }catch(e){
+  const detail=String(e?.message||e||'unknown error');
+  $('buildNote').textContent='Auto build stopped: '+detail;
+  $('status').textContent='Auto build stopped: '+detail;
+  if(results.length)await showResult(results.length-1,{review:false});
+ }finally{
+  setBusy(false);
+ }
+}
+
 async function buildAction(kind,instruction=''){
  if(!lastBlob||!lastPlan||!lastDescription){$('status').textContent='Create a card first.';return}
  setBusy(true,kind==='style'?'Improving style…':kind==='layout'?'Improving layout…':'Creating…');
@@ -1870,11 +1961,18 @@ $('retryBtn').addEventListener('click',async()=>{
  buildAction(action,$('retryBtn').dataset.instruction||'');
 });
 $('tightenBtn').addEventListener('click',()=>buildAction($('tightenBtn').dataset.action||'layout',$('tightenBtn').dataset.instruction||''));
-$('moreBtn').addEventListener('click',()=>buildAction($('moreBtn').dataset.action||'variation',$('moreBtn').dataset.instruction||''));
-$('backBtn').addEventListener('click',buildBackCard);
+$('moreBtn').addEventListener('click',()=>{
+ if($('moreBtn').dataset.action==='auto')return autoCreate(1,{append:true});
+ buildAction($('moreBtn').dataset.action||'variation',$('moreBtn').dataset.instruction||'');
+});
+$('backBtn').addEventListener('click',()=>{if(autoMode&&backResult)showBack();else buildBackCard()});
+$('autoMake')?.addEventListener('click',()=>autoCreate(1));
+$('auto3')?.addEventListener('click',()=>autoCreate(3));
+$('downloadBtn')?.addEventListener('click',downloadCurrentCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
+ autoMode=false;autoBacks.clear();autoTitles.clear();lastAutoSpec=null;
  results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });

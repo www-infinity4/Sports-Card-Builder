@@ -27,6 +27,12 @@ const ABILITIES = Object.freeze({
     runtime: 'gpu-service',
     tasks: ['text-to-image','image-to-image','inpainting','controlled-generation']
   },
+  autoCard: {
+    id: 'auto_card',
+    engine: 'Oracle Auto Card engine (public/auto-card.js)',
+    runtime: 'browser',
+    tasks: ['zero-input-build','intent-steering','set-parallel-rarity','serial-numbering','front-back-composition','artwork-fallback-chain']
+  },
   videoGeneration: {
     id: 'video_generation',
     engine: 'Wan2.2',
