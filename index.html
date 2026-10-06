@@ -52,7 +52,7 @@ button,textarea{font:inherit}
 .builderControls{margin-top:14px;padding-top:13px;border-top:1px solid #dfe6ec;display:grid;gap:8px}
 .controlBlock{display:none;gap:8px;padding:10px 0}
 .controlBlock.current{display:grid}
-.controlBlock.complete{display:grid;padding:7px 0}
+.controlBlock.complete{display:none}
 .controlBlock.complete .choiceRow,.controlBlock.complete .identityActions,.controlBlock.complete .inlineFields,.controlBlock.complete .readerIdeas{display:none!important}
 .controlTitle{font-size:.72rem;font-weight:950;letter-spacing:.08em;text-transform:uppercase;color:#778391}
 .controlSummary{display:none;border:1px solid #d6e0e8;border-radius:14px;background:rgba(255,255,255,.72);color:#566674;padding:9px 11px;font-size:.8rem;font-weight:850;cursor:pointer;text-align:left}
@@ -209,7 +209,7 @@ textarea::placeholder{color:#7e8894;opacity:.82}
        <button id="editSeriesBtn" class="choiceBtn" type="button">Series / Date</button>
       </div>
       <div id="customFields" class="inlineFields">
-       <label>Title<input id="cardTitleInput" type="text" placeholder="Pink Floyd"></label>
+       <label>Title<input id="cardTitleInput" type="text" placeholder="Detected title or custom title"></label>
        <label>Brand<input id="cardBrandInput" type="text" placeholder="Your brand"></label>
        <label>Logo text<input id="cardLogoInput" type="text" placeholder="Brand logo text"></label>
        <label>Series<input id="cardSeriesInput" type="text" placeholder="Insert series"></label>
@@ -281,6 +281,6 @@ textarea::placeholder{color:#7e8894;opacity:.82}
 <script src="./public/card-critic.js?v=20261005-1"></script>
 <script src="./public/builder-tools.js?v=20261005-3"></script>
 <script src="./public/ability-router.js?v=20261005-1"></script>
-<script src="./public/app.js?v=20261005-7"></script>
+<script src="./public/app.js?v=20261005-8"></script>
 </body>
 </html>
