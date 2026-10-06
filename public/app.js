@@ -142,8 +142,10 @@ async function showResult(index){
 
 async function finishOutput(out){
  if(!out?.dataURI)throw new Error('empty_image');
- const base=out.mode==='server-composite'?out.dataURI:await stampProductLine(out.dataURI);
- const finished=await stampCollectorMarks(base);
+ const base=out.mode==='server-composite'?out.dataURI:out.dataURI;
+ const labeled=await stampFrontIdentity(base);
+ const marked=await stampCollectorMarks(labeled);
+ const finished=await stampProductLine(marked);
  const img=new Image();img.src=finished;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('image_display_failed'))});
  results.push(finished);await showResult(results.length-1);return finished;
 }
@@ -608,6 +610,45 @@ function showBack(){
 }
 
 
+async function stampFrontIdentity(dataURI){
+ const s=state(),id=s.identity||{};
+ const title=(id.title||s.detected?.title||'').trim();
+ const brand=(s.selections.useBrand?id.brand:'')||'';
+ const logo=(s.selections.useLogo?id.logoText:'')||'';
+ const series=id.series||'';
+ const date=s.selections.includeDate?(id.dateText||''):'';
+ const cardNumber=id.cardNumber||'';
+ if(!title&&!brand&&!logo&&!series&&!date&&!cardNumber)return dataURI;
+ const img=new Image();img.src=dataURI;await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('front_identity_load_failed'))});
+ const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+ const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+ const w=canvas.width,h=canvas.height,footer=Math.max(34,Math.round(h*.044));
+ const pad=Math.round(w*.035);
+ const panelH=Math.max(78,Math.round(h*.105));
+ const y=h-footer-panelH;
+ const dark=s.selections.border==='black'||s.selections.border==='hologram'||s.selections.border==='chrome';
+ ctx.fillStyle=dark?'rgba(10,13,17,.88)':'rgba(255,255,255,.94)';
+ ctx.fillRect(pad,y,w-pad*2,panelH);
+ ctx.strokeStyle=dark?'rgba(255,255,255,.22)':'rgba(20,27,34,.18)';
+ ctx.lineWidth=Math.max(1,Math.round(w*.0016));ctx.strokeRect(pad,y,w-pad*2,panelH);
+ ctx.textBaseline='alphabetic';ctx.textAlign='left';
+ const ink=dark?'#ffffff':'#11161c';
+ const sub=dark?'rgba(255,255,255,.78)':'rgba(17,22,28,.72)';
+ ctx.fillStyle=ink;
+ ctx.font='900 '+Math.max(22,Math.round(w*.045))+'px Arial, Helvetica, sans-serif';
+ const displayTitle=title||brand||logo;
+ if(displayTitle)ctx.fillText(displayTitle,pad+Math.round(w*.022),y+Math.round(panelH*.48),w-Math.round(w*.18));
+ ctx.font='800 '+Math.max(11,Math.round(w*.018))+'px Arial, Helvetica, sans-serif';
+ ctx.fillStyle=sub;
+ const secondary=[brand&&brand!==displayTitle?brand:'',logo&&logo!==displayTitle&&logo!==brand?logo:'',series,date].filter(Boolean).join(' · ');
+ if(secondary)ctx.fillText(secondary,pad+Math.round(w*.022),y+Math.round(panelH*.74),w-Math.round(w*.23));
+ if(cardNumber){
+  ctx.textAlign='right';ctx.fillStyle=sub;ctx.font='900 '+Math.max(11,Math.round(w*.018))+'px Arial, Helvetica, sans-serif';
+  ctx.fillText(cardNumber,w-pad-Math.round(w*.022),y+Math.round(panelH*.74));
+ }
+ return canvas.toDataURL('image/jpeg',.97);
+}
+
 async function stampCollectorMarks(dataURI){
  const s=state();
  if(!s.selections.oneOfOne)return dataURI;
@@ -615,21 +656,22 @@ async function stampCollectorMarks(dataURI){
  const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
  const footer=Math.max(34,Math.round(canvas.height*.044));
- const fontSize=Math.max(15,Math.round(canvas.width*.032));
- const pad=Math.max(9,Math.round(canvas.width*.018));
+ const fontSize=Math.max(13,Math.round(canvas.width*.021));
+ const x=canvas.width-Math.round(canvas.width*.045);
+ const y=canvas.height-footer-Math.round(canvas.height*.028);
  const text='1/1';
- ctx.font='900 '+fontSize+'px Arial, sans-serif';
- const tw=ctx.measureText(text).width;
- const boxW=tw+pad*2,boxH=fontSize+pad;
- const x=canvas.width-boxW-Math.round(canvas.width*.035);
- const y=canvas.height-footer-boxH-Math.round(canvas.height*.018);
- const grad=ctx.createLinearGradient(x,y,x+boxW,y+boxH);
- grad.addColorStop(0,'#fff7cf');grad.addColorStop(.35,'#d7b85f');grad.addColorStop(.65,'#fff1a8');grad.addColorStop(1,'#8d6d1f');
- ctx.fillStyle='rgba(18,20,22,.82)';ctx.fillRect(x-2,y-2,boxW+4,boxH+4);
- ctx.fillStyle=grad;ctx.fillRect(x,y,boxW,boxH);
- ctx.strokeStyle='rgba(85,61,10,.85)';ctx.lineWidth=Math.max(1,Math.round(canvas.width*.002));ctx.strokeRect(x,y,boxW,boxH);
- ctx.fillStyle='#18130a';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,x+boxW/2,y+boxH/2+1);
- return canvas.toDataURL('image/jpeg',.96);
+ ctx.save();
+ ctx.textAlign='right';ctx.textBaseline='alphabetic';
+ ctx.font='900 italic '+fontSize+'px Arial, Helvetica, sans-serif';
+ ctx.lineWidth=Math.max(1,Math.round(canvas.width*.0016));
+ ctx.strokeStyle='rgba(70,45,4,.72)';
+ ctx.shadowColor='rgba(0,0,0,.35)';ctx.shadowBlur=Math.max(1,Math.round(canvas.width*.002));ctx.shadowOffsetY=1;
+ const grad=ctx.createLinearGradient(x-Math.round(canvas.width*.07),y-fontSize,x,y);
+ grad.addColorStop(0,'#8c6717');grad.addColorStop(.28,'#f6e39a');grad.addColorStop(.52,'#b48824');grad.addColorStop(.76,'#fff0ad');grad.addColorStop(1,'#8c6717');
+ ctx.strokeText(text,x,y);
+ ctx.fillStyle=grad;ctx.fillText(text,x,y);
+ ctx.restore();
+ return canvas.toDataURL('image/jpeg',.97);
 }
 
 async function stampProductLine(dataURI){
