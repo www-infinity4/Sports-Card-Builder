@@ -8,7 +8,6 @@ const CARD_NUMBERING=window.OracleCardNumbering||null;
 const CARD_TEMPLATES=window.OracleCardTemplates||null;
 const CARD_BACK=window.OracleCardBack||null;
 const CARD_CRITIC=window.OracleCardCritic||null;
-const INTENT_REPAIR=window.OracleIntentRepair||null;
 let lastToolPlan=null;
 let lastAbilityRoute=null;
 
@@ -34,7 +33,6 @@ let results=[];
 let activeResult=-1;
 let lastIntel=null;
 let lastIntent=null;
-let lastIntentRepair=null;
 let backResult='';
 let currentSide='front';
 let selectedImageFiles=[];
@@ -1161,67 +1159,40 @@ async function renderCard(blob,prompt,description,designBlob=null){
 }
 
 async function createCard(count=1,mode='original'){
- const rawFreeform=$('message').value.trim();
+ const freeform=$('message').value.trim();
+ const description=builderDescription(freeform);
  if(!sourceFile){$('status').innerHTML='<strong>Add a photo first.</strong>';return}
  if(mode==='reference'&&!referenceFile){$('status').innerHTML='<strong>Add a card design reference first.</strong>';return}
  setBusy(true,count===3?'Creating 3…':'Creating…');$('status').textContent='Designing your card…';showMonitor();
  try{
   results=[];activeResult=-1;renderVariationBar();$('resultActions').style.display='none';
-  stage('prepare','active','Preparing the exact uploaded image…');
+  stage('prepare','active','Preparing a high-quality reference image…');
   lastBlob=sourceFile;
   lastReferenceBlob=mode==='reference'?referenceFile:null;
+  lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
   buildMode=mode;
   stage('prepare','done');
-
-  stage('plan','active','Repairing wording and recovering intent…');
-  lastIntentRepair=INTENT_REPAIR
-   ? await INTENT_REPAIR.repairWithGPT({text:rawFreeform,state:state(),service:SERVICE})
-   : {final:rawFreeform,normalized:rawFreeform,repairs:[],gpt:null};
-  const freeform=String(lastIntentRepair?.final||rawFreeform||'').trim();
-  const description=builderDescription(freeform);
-  lastDescription=description||builderDescription('Build a new card using the uploaded reference design.');
-
+  stage('plan','active','Locking your selected card design…');
   const chosenTitle=state().identity.title||state().detected.title||'';
   const detectedKind=[state().detected.subjectType,(state().detected.keywords||[]).join(' '),freeform].join(' ');
   const sportsContext=/\b(baseball|mlb|athlete|player|pitcher|catcher|rookie|home run|batting|fielder|batter)\b/i.test(detectedKind);
   lastIntent={
    playerQuery:sportsContext?chosenTitle:'',
-   teamQuery:state().identity.context||'',
+   teamQuery:'',
    explicitYear:(lastDescription.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'',
    cardType:sportsContext?'sports card':'collectible card',
    subset:'',
-   historicalAngle:'',
-   repairedRequest:freeform
+   historicalAngle:''
   };
-
   try{lastIntel=sportsContext&&chosenTitle?await fetchPlayerIntel(chosenTitle):null}catch{lastIntel=null}
-
-  stage('plan','active','GPT is building and checking the design instructions…');
-  try{
-   lastPlan=mode==='reference'
-    ? await buildReferencePlan(lastDescription)
-    : await buildDesignPlan(lastDescription,lastIntel,lastIntent);
-  }catch{
-   lastPlan=mode==='reference'
-    ? localReferencePlan(lastDescription)
-    : localDesignPlan(lastDescription,lastIntel,lastIntent);
-  }
-
+  lastPlan=mode==='reference'?localReferencePlan(lastDescription):localDesignPlan(lastDescription,lastIntel,lastIntent);
   if(CARD_CRITIC){
    const check=CARD_CRITIC.inspectSpec(state(),lastPlan?.renderPrompt||'');
    if(!check.ok&&CARD_TEMPLATES)lastPlan.renderPrompt=builderDescription(freeform)+'\n\n'+lastPlan.renderPrompt;
   }
-
   $('smartIdeas').style.display='none';
   if(ABILITY_ROUTER&&lastToolPlan)lastAbilityRoute=ABILITY_ROUTER.route({...lastToolPlan,mode:buildMode});
-
-  const repairSummary=INTENT_REPAIR?.summarize(lastIntentRepair)||'';
-  const doneNote=repairSummary
-   ? 'Intent repaired and design checked: '+repairSummary
-   : lastAbilityRoute
-     ? 'Ability route locked: '+lastAbilityRoute.abilities.map(a=>a.engine).join(' → ')
-     : lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.';
-  stage('plan','done',doneNote);
+  stage('plan','done',lastAbilityRoute?'Ability route locked: '+lastAbilityRoute.abilities.map(a=>a.engine).join(' → '):lastToolPlan?'Builder tools locked the card specification.':'Design direction ready.');
   await generateFromPlan(count===3?'variations':'single',count);
  }catch(e){
   const active=document.querySelector('.buildStep.active');
@@ -1267,6 +1238,6 @@ $('backBtn').addEventListener('click',buildBackCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('newCard').addEventListener('click',()=>{
- results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;lastIntentRepair=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
+ results=[];activeResult=-1;backResult='';currentSide='front';lastPlan=null;lastBlob=null;lastReferenceBlob=null;lastDescription='';lastIntel=null;lastIntent=null;buildMode='original';clearImageTray();CARD_STATE?.reset();$('message').value='';['cardTitleInput','cardContextInput','cardBrandInput','cardSeriesInput','cardDateInput','cardLogoInput'].forEach(id=>{if($(id))$(id).value=''});builderStepBlocks().forEach((b,i)=>{b.classList.toggle('current',i===0);b.classList.remove('complete')});updateBuilderSummary();
  $('resultImage').style.display='none';$('buildMonitor').style.display='none';$('empty').style.display='grid';$('resultActions').style.display='none';$('reviewPanel').style.display='none';$('variationBar').style.display='none';$('sideSwitch').style.display='none';$('smartIdeas').style.display='none';$('status').textContent='Ready for another card.';
 });
