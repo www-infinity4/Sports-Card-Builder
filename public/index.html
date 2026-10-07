@@ -189,10 +189,10 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <div class="controlTitle">Hidden defaults</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="style">
-       <button class="choiceBtn" type="button" data-value="topps">Topps</button>
+       <button class="choiceBtn active" type="button" data-value="auto">Auto from image</button>\n       <button class="choiceBtn" type="button" data-value="topps">Topps</button>
        <button class="choiceBtn" type="button" data-value="donruss">Donruss</button>
        <button class="choiceBtn" type="button" data-value="fleer">Fleer</button>
-       <button class="choiceBtn active" type="button" data-value="flagship">Flagship</button>
+       <button class="choiceBtn" type="button" data-value="flagship">Flagship</button>
        <button class="choiceBtn" type="button" data-value="upperdeck">Upper Deck</button>
       </div>
      </div>
@@ -200,7 +200,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <div class="controlTitle">Card border</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="border">
-       <button class="choiceBtn active" type="button" data-value="white">White Border</button>
+       <button class="choiceBtn active" type="button" data-value="auto">Auto</button>\n       <button class="choiceBtn" type="button" data-value="white">White Border</button>
        <button class="choiceBtn" type="button" data-value="black">Black Border</button>
        <button class="choiceBtn" type="button" data-value="chrome">Chrome</button>
        <button class="choiceBtn" type="button" data-value="hologram">Hologram</button>
@@ -211,7 +211,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <div class="controlTitle">Material</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow" data-choice-group="finish">
-       <button class="choiceBtn active" type="button" data-value="paper">Paper</button>
+       <button class="choiceBtn active" type="button" data-value="auto">Auto</button>\n       <button class="choiceBtn" type="button" data-value="paper">Paper</button>
        <button class="choiceBtn" type="button" data-value="matte">Matte</button>
        <button class="choiceBtn" type="button" data-value="gloss">Gloss</button>
        <button class="choiceBtn" type="button" data-value="foil">Foil</button>
@@ -222,7 +222,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <div class="controlTitle">Collector details</div>
       <button class="controlSummary" type="button"></button>
       <div class="choiceRow">
-       <button id="oneOfOneToggle" class="choiceBtn active" type="button">1/1 On</button>
+       <button id="oneOfOneToggle" class="choiceBtn" type="button">1/1 Off</button>
        <button id="signatureToggle" class="choiceBtn" type="button">Signature</button>
        <button id="logoToggle" class="choiceBtn active" type="button">Logo</button>
        <button id="backToggle" class="choiceBtn active" type="button">Build Back</button>
@@ -252,7 +252,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
       <button id="retryReadBtn" class="choiceBtn" type="button" style="display:none">Retry image read</button>
       <button id="identityContinue" class="stepContinue" type="button" style="display:none">Done</button>
      </div>
-     <div id="builderSummary" class="builderSummary">Auto build: white-border flagship card · paper stock · no signature · automatic 1/1.</div>
+     <div id="builderSummary" class="builderSummary">Auto build: image-led design · no forced template · no forced rarity.</div>
     </div>
     <div class="promptWrap">
      <div class="promptLabel">Changes (optional)</div>
@@ -324,7 +324,7 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
   </section>
  </main>
 </div>
-<script src="./card-state.js?v=20261006-3"></script>
+<script src="./card-state.js?v=20261007-1"></script>
 <script src="./card-evidence.js?v=20261006-1"></script>
 <script src="./cloudflare-card-services.js?v=20261006-3"></script>
 <script src="./card-numbering.js?v=20261005-1"></script>
@@ -337,6 +337,6 @@ textarea::placeholder,.inlineFields input::placeholder{color:#5f6b77;opacity:1}
 <script src="./ability-router.js?v=20261006-5"></script>
 <script src="./auto-card.js?v=20261006-1"></script>
 <script src="./card-studio-api.js?v=20261006-1"></script>
-<script src="./app.js?v=20261006-64"></script>
+<script src="./app.js?v=20261007-1"></script>
 </body>
 </html>
