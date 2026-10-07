@@ -437,8 +437,7 @@ renderSkillsPanel(lastAbilityRoute);
 
 function setBusy(busy,label='Creating…'){
  $('make').disabled=busy;$('make3').disabled=busy;$('buildLike').disabled=busy;
- if($('autoMake'))$('autoMake').disabled=busy;if($('auto3'))$('auto3').disabled=busy;
- $('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;$('backBtn').disabled=busy;
+$('retryBtn').disabled=busy;$('tightenBtn').disabled=busy;$('moreBtn').disabled=busy;$('backBtn').disabled=busy;
  if(busy){$('make').textContent=label;$('make3').textContent='Working…'}
  else{$('make').textContent='Create Card';$('buildLike').textContent='Build Like This Card';$('make3').textContent='Create 3'}
 }
@@ -2345,19 +2344,12 @@ async function createCard(count=1,mode='original'){
  }
 }
 
-const AUTO_CARD=window.OracleAutoCard||null;
+// Card Studio is a universal image-first collectible-card engine.
+ // Sports-specific pack/pull logic was intentionally removed from the live path.
+ // Baseball, Topps and sports remain available only when requested by evidence or user direction.
 let autoMode=false;
-let lastAutoSpec=null;
 const autoTitles=new Map();
 const autoBacks=new Map();
-
-function autoStageFor(message){
- const m=String(message||'');
- if(/^Pulling/.test(m)){stage('prepare','done');stage('plan','active',m);return}
- if(/artwork|image model|reference renderer|Uploaded photo/i.test(m)){stage('prepare','done');stage('plan','done');stage('render','active',m);return}
- if(/^Composing/.test(m)){stage('render','done');stage('finish','active',m);return}
- stage('prepare','active',m);
-}
 
 function fileSlug(text){return String(text||'card').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80)||'card';}
 
@@ -2370,79 +2362,6 @@ function downloadCurrentCard(){
  const front=results[activeResult]||src;
  a.download=fileSlug((autoTitles.get(front)||autoTitles.get(src)||state().identity.title||'card')+'-'+currentSide)+'.'+(ext==='jpeg'?'jpg':ext);
  document.body.appendChild(a);a.click();a.remove();
-}
-
-function showAutoReport(spec,artSource){
- const status=$('reviewStatus');
- $('reviewPanel').style.display='block';
- status.textContent='';
- const strong=document.createElement('strong');strong.textContent=spec.title;status.appendChild(strong);
- const v=spec.value;
- const art={upload:'your uploaded photo',ai:'AI-generated artwork','reference-ai':'reference-rendered artwork',procedural:'painted studio artwork'}[artSource]||'artwork';
- status.appendChild(document.createTextNode(' · '+v.tier+' · Value Index '+v.index+'/100 · '+v.serialText+' · Odds '+v.oddsText+' · Built from '+art+'.'));
- $('retryBtn').style.display='none';$('tightenBtn').style.display='none';
- $('moreBtn').style.display='inline-block';$('moreBtn').textContent='Pull Another';$('moreBtn').dataset.action='auto';$('moreBtn').dataset.instruction='';
- $('backBtn').style.display='inline-block';$('backBtn').textContent='Show Back';
-}
-
-async function autoCreate(count=1,{append=false}={}){
- if(!AUTO_CARD){$('status').textContent='Auto Card engine did not load. Refresh the page.';return}
- const s=state();
- const typed=$('message').value.trim();
- const title=String(s.identity.title||'').trim();
- const context=String(s.identity.context||'').trim();
- setBusy(true,count>1?'Auto ×'+count+'…':'Auto building…');
- showMonitor();
- if(!append){results=[];activeResult=-1;autoBacks.clear();backResult='';renderVariationBar();}
- autoMode=true;
- $('resultActions').style.display='none';
- try{
-  for(let i=0;i<count;i++){
-   stage('prepare','active',count>1?'Pulling card '+(i+1)+' of '+count+'…':'Reading your request…');
-   // The engine picks everything itself; typed text / identity fields only steer it.
-   const text=[typed,context,title&&!AUTO_CARD.parseIntent(typed).player?title:''].filter(Boolean).join(' ');
-   const out=await AUTO_CARD.build({
-    text,
-    photo:sourceFile||null,
-    brand:String(s.identity.brand||'').trim().toUpperCase().slice(0,24)||undefined,
-    fetchIntel:name=>fetchPlayerIntel(name).catch(()=>null),
-    renderReference:(blob,prompt)=>renderWithWorkersAI(blob,prompt+' Turn this rough painted layout into a realistic, sharp sports photograph. Keep the pose, uniform colors and framing. No text, no logos.',prompt),
-    artTimeoutMs:45000,
-    onStatus:autoStageFor
-   });
-   stage('finish','done');
-   stage('iterate','done','Card '+(i+1)+' finished: '+out.spec.value.tier+'.');
-   results.push(out.front);
-   if(CARD_DATA_STREAM?.build&&CARD_STUDIO?.recordArtifact&&CARD_BACK?.formatFor&&CARD_BACK?.render){
-    const data=CARD_DATA_STREAM.build({intel:out.intel,
-     userOverrides:{title:out.spec.title,subject:out.spec.player?.name||out.spec.title,category:'sports'},
-     cardNumber:CARD_NUMBERING?.number(out.spec.title,results.length)||String(results.length),
-     template:activeTemplate(),
-     footerText:'Fantasy Craft Product · Infinity® · Produced by Goudey Tradition Trading Card Company LLC'});
-    const artifact=CARD_STUDIO.recordArtifact({cardData:data,front:{image:out.front,templateId:data.templateId,renderPath:out.artSource},
-     back:{image:'',format:CARD_BACK.formatFor(data),data},evidence:{},sources:data.sources,provenance:data.provenance,
-     build:{renderer:out.artSource,validation:{status:'unavailable'}}});
-    studioCards.set(out.front,artifact);
-    await buildBackCard({display:false,index:results.length-1});
-    autoBacks.set(out.front,backResult);
-   }else autoBacks.set(out.front,out.back);
-   autoTitles.set(out.front,out.spec.title);
-   lastAutoSpec=out.spec;
-   if(out.warning)console.warn('Auto card artwork fallback',out.warning);
-   if(count===1||i===count-1){
-    await showResult(results.length-1,{review:false});
-    showAutoReport(out.spec,out.artSource);
-   }
-  }
-  $('status').innerHTML='<strong>'+count+' auto card'+(count>1?'s':'')+' pulled.</strong> Tap Back to see stats, Pull Another for a new pack.';
- }catch(e){
-  const detail=String(e?.message||e||'unknown error');
-  $('buildNote').textContent='Auto build stopped: '+detail;
-  $('status').textContent='Auto build stopped: '+detail;
-  if(results.length)await showResult(results.length-1,{review:false});
- }finally{
-  setBusy(false);
- }
 }
 
 async function buildAction(kind,instruction=''){
@@ -2535,12 +2454,9 @@ if(CARD_STUDIO)CARD_STUDIO.configure({
 });
 $('tightenBtn').addEventListener('click',()=>buildAction($('tightenBtn').dataset.action||'layout',$('tightenBtn').dataset.instruction||''));
 $('moreBtn').addEventListener('click',()=>{
- if($('moreBtn').dataset.action==='auto')return autoCreate(1,{append:true});
- buildAction($('moreBtn').dataset.action||'variation',$('moreBtn').dataset.instruction||'');
+buildAction($('moreBtn').dataset.action||'variation',$('moreBtn').dataset.instruction||'');
 });
-$('backBtn').addEventListener('click',()=>{if(autoMode&&backResult)showBack();else buildBackCard()});
-$('autoMake')?.addEventListener('click',()=>autoCreate(1));
-$('auto3')?.addEventListener('click',()=>autoCreate(3));
+$('backBtn').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
 $('downloadBtn')?.addEventListener('click',downloadCurrentCard);
 $('frontSide').addEventListener('click',showFront);
 $('backSide').addEventListener('click',()=>{if(backResult)showBack();else buildBackCard()});
