@@ -23,10 +23,15 @@
 const VERSION='2026.10.06.2';
 
 const CATEGORIES={
- sports:{id:'sports',label:'Sports',brandRole:'card maker, league or team logo text actually printed in the image (e.g. Topps, Upper Deck, Yankees)',contextRole:'team, league or event',titleRole:'player / athlete name'},
- movie:{id:'movie',label:'Movie',brandRole:'studio or franchise (e.g. MGM, Warner Bros., Batman, Star Wars, Marvel)',contextRole:'movie title',titleRole:'character or actor name'},
- tv:{id:'tv',label:'TV show',brandRole:'network, studio or franchise (e.g. HBO, NBC, Star Trek, The Simpsons)',contextRole:'TV show title',titleRole:'character or actor name'},
- other:{id:'other',label:'Other',brandRole:'brand or logo text actually printed in the image',contextRole:'event, product, band, place or other context',titleRole:'subject name'}
+ fantasy:{id:'fantasy',label:'Fantasy / RPG',brandRole:'game, world, publisher, faction or logo text actually printed in the image',contextRole:'setting, class, creature, adventure or set',titleRole:'character, creature, spell, artifact or subject name'},
+ movie:{id:'movie',label:'Movie',brandRole:'studio or franchise actually supported by the image',contextRole:'movie title, scene or set',titleRole:'character, actor or subject name'},
+ tv:{id:'tv',label:'TV / animation',brandRole:'network, studio or franchise actually supported by the image',contextRole:'show, episode, season or set',titleRole:'character, performer or subject name'},
+ music:{id:'music',label:'Music',brandRole:'artist, band, label or series text actually supported by the image',contextRole:'album, song, tour, performance or set',titleRole:'artist, band, song or subject name'},
+ product:{id:'product',label:'Product / advertising',brandRole:'brand or maker actually supported by the image',contextRole:'product, campaign, model or series',titleRole:'product or subject name'},
+ artifact:{id:'artifact',label:'Artifact / object',brandRole:'maker, institution or collection actually supported by the image',contextRole:'object type, era, collection or provenance context',titleRole:'artifact or object name'},
+ game:{id:'game',label:'Game',brandRole:'game, publisher or franchise actually supported by the image',contextRole:'game, expansion, world or set',titleRole:'character, item, creature or subject name'},
+ sports:{id:'sports',label:'Sports',brandRole:'card maker, league or team logo text actually supported by the image',contextRole:'team, league or event',titleRole:'player / athlete name'},
+ other:{id:'other',label:'Other',brandRole:'brand, maker or logo text actually supported by the image',contextRole:'event, place, series or other context',titleRole:'subject name'}
 };
 
 // Layout presets: symbolic positions for the brand spot, name plate and
@@ -194,9 +199,16 @@ function findYear(text){
  return m?Number(m[1]):0;
 }
 
-const SPORT_WORDS=['baseball','basketball','football','hockey','soccer','athlete','player','pitcher','batter','catcher','quarterback','mlb','nba','nfl','nhl','mls','ufc','golf','tennis','boxing','wrestling','jersey','stadium','rookie','team','league','sport','sports'];
-const MOVIE_WORDS=['movie','film','cinema','studio','mgm','warner','paramount','universal','disney','pixar','marvel','dc comics','batman','superman','star wars','jurassic','actor','actress','premiere','poster','box office','trailer','hollywood','character','franchise','lobby card','director'];
-const TV_WORDS=['tv','television','tv show','sitcom','episode','season finale','series premiere','network','hbo','nbc','cbs','abc','fox','netflix','streaming','showrunner','star trek','simpsons','x files','cartoon','anime'];
+const CATEGORY_WORDS={
+ fantasy:['dungeons and dragons','d&d','rpg','role playing','fantasy','dragon','dungeon','wizard','sorcerer','cleric','paladin','rogue','monster','spell','magic item','character sheet','campaign','adventure module','tabletop'],
+ movie:['movie','film','cinema','studio','mgm','warner','paramount','universal','disney','pixar','marvel','dc comics','batman','superman','star wars','jurassic','actor','actress','premiere','poster','box office','trailer','hollywood','character','franchise','lobby card','director'],
+ tv:['tv','television','tv show','sitcom','episode','season finale','series premiere','network','hbo','nbc','cbs','abc','fox','netflix','streaming','showrunner','star trek','simpsons','x files','cartoon','anime','animation'],
+ music:['music','band','singer','musician','album','song','record','vinyl','concert','tour','guitar','drummer','vocalist','track','single','ep','lp'],
+ product:['product','advertisement','advertising','commercial','brand','package','packaging','model number','sku','retail','promotion','campaign','coupon'],
+ artifact:['artifact','coin','antique','relic','museum','specimen','fossil','mineral','jewel','gem','medal','stamp','historic object','collectible object'],
+ game:['video game','board game','card game','game character','game item','console','arcade','playstation','xbox','nintendo','steam'],
+ sports:['baseball','basketball','football','hockey','soccer','athlete','player','pitcher','batter','catcher','quarterback','mlb','nba','nfl','nhl','mls','ufc','golf','tennis','boxing','wrestling','jersey','stadium','rookie','team','league','sport','sports']
+};
 
 function detectCategory(input={}){
  const text=norm([
@@ -207,12 +219,10 @@ function detectCategory(input={}){
  ].filter(Boolean).join(' '));
  const explicit=String(input.category||'').toLowerCase().trim();
  if(CATEGORIES[explicit]&&explicit!=='other')return explicit;
- const score=words=>words.reduce((n,w)=>n+(has(text,w)?1:0),0);
- const s=score(SPORT_WORDS),m=score(MOVIE_WORDS),v=score(TV_WORDS);
- if(!s&&!m&&!v)return 'other';
- if(v>m&&v>=s)return 'tv';
- if(m>=s&&m>=v)return 'movie';
- return 'sports';
+ const scored=Object.entries(CATEGORY_WORDS).map(([category,words])=>({
+  category,score:words.reduce((n,w)=>n+(has(text,w)?1:0),0)
+ })).sort((a,b)=>b.score-a.score);
+ return scored[0]?.score?scored[0].category:'other';
 }
 
 function match(text,{category=''}={}){
