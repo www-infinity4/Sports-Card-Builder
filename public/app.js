@@ -19,9 +19,10 @@ const ARTWORK_ONLY_INSTRUCTION='Create artwork, borders, textures and non-text d
 // Route the image reader to read the whole image, not just the main subject.
 const FULL_READ_INSTRUCTIONS=[
  'Read EVERYTHING in this image before answering: every printed word, name, number, jersey number, logo text, watermark, caption, copyright/credit line, card-maker mark, year, team, league, studio, network, franchise and series text, in every corner and on every edge.',
+ 'Also return subjectBox and contentBox as normalized 0..1 rectangles {x,y,width,height,confidence}; subjectBox should tightly contain the primary visual subject while preserving head/hands/instrument/object, and contentBox should contain the meaningful non-blank artwork/photo area.',
  'Also describe the subject, scene, objects, colors, era clues and media clues.',
  'Decide the category: sports, movie, tv or other. If the image is itself a trading card, report the card maker (Topps, Upper Deck, Donruss, Fleer, Bowman, Panini, Score, SkyBox…) and the card year when printed or clearly identifiable.',
- 'Return JSON with: visibleText[], logos[], numbers[], subjectType, category, cardMaker, cardYear, franchise, studio, network, team, league, movieTitle, showTitle, characterName, playerName, titleOptions[], brandOptions[], contextOptions[], keywords[], eraClues[], mediaClues[], objects[], colors[], semanticDescription.',
+ 'Return JSON with: visibleText[], logos[], numbers[], subjectType, category, cardMaker, cardYear, franchise, studio, network, team, league, movieTitle, showTitle, characterName, playerName, titleOptions[], brandOptions[], contextOptions[], keywords[], eraClues[], mediaClues[], objects[], colors[], semanticDescription, subjectBox, contentBox.',
  'Never identify a real person or character from appearance alone; only use names that are printed or otherwise evidenced.'
 ].join(' ');
 let lastToolPlan=null;
@@ -37,6 +38,7 @@ async function fetchWithTimeout(url,options={},timeoutMs=8000){
  }
 }
 let sourceFile=null;
+let renderSourceFile=null;
 let previewUrl='';
 let referenceFile=null;
 let referencePreviewUrl='';
@@ -98,7 +100,7 @@ function pipelineProgress(name,status,detail=''){
 }
 
 
-function state(){return CARD_STATE?.state||{selections:{border:'white',style:'flagship',finish:'paper',signature:'none',oneOfOne:true,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
+function state(){return CARD_STATE?.state||{selections:{border:'auto',style:'auto',finish:'auto',signature:'none',oneOfOne:false,useLogo:true,useBrand:true,includeDate:true,buildBack:true},identity:{title:'',brand:'',logoText:'',series:'',dateText:'',cardNumber:''},detected:{}}}
 
 function activeCategory(){
  const s=state();
@@ -122,7 +124,9 @@ function activeTemplate(){
  if(chosen!=='auto'){const t=TEMPLATE_DB.get(chosen);if(t)return t;}
  const category=activeCategory();
  const text=[$('message')?.value,s.identity.series,s.identity.dateText,s.detected.cardMaker,s.detected.cardYear].filter(Boolean).join(' ');
- return TEMPLATE_DB.match(text,{category})||TEMPLATE_DB.defaultFor(category);
+ // Auto must never silently become a specific card family. Only evidence or
+ // explicit user direction may select a historical/template design.
+ return TEMPLATE_DB.match(text,{category})||null;
 }
 function templateLabel(t){return t?t.year+' '+t.maker+(t.line==='Flagship'?'':' '+t.line):'';}
 function populateTemplateSelect(){
@@ -145,7 +149,8 @@ function populateTemplateSelect(){
 function refreshAutoTemplateLabel(){
  const o=$('cardTemplateSelect')?.querySelector('option[value="auto"]');
  if(!o)return;
- o.textContent=state().selections.template==='auto'&&TEMPLATE_DB?'Auto: '+templateLabel(activeTemplate()):'Auto match';
+ const matched=activeTemplate();
+ o.textContent=state().selections.template==='auto'&&TEMPLATE_DB?(matched?'Auto: '+templateLabel(matched):'Auto: image-led'):'Auto match';
 }
 function syncTemplateControls(){
  if($('cardCategorySelect'))$('cardCategorySelect').value=state().selections.category||'auto';
@@ -268,7 +273,7 @@ function builderDescription(freeform=''){
   spec?'COMPILED TEMPLATE SPEC: '+JSON.stringify(spec)+'.':'',
   tpl?TEMPLATE_DB.promptFor(tpl):'',
   lastTemplateRefs.length?'TEMPLATE REFERENCE IMAGES FOUND ONLINE for '+templateLabel(tpl)+': '+lastTemplateRefs.slice(0,5).map(r=>r.title).filter(Boolean).join(' | ')+'.':'',
-  'BUILD SETTINGS: template '+(tpl?templateLabel(tpl):'none')+', style '+String(s.selections.style||'flagship')+', border '+String(s.selections.border||'')+', finish '+String(s.selections.finish||'')+', '+(s.selections.oneOfOne?'1/1 on':'1/1 off')+'.',
+  'BUILD SETTINGS: '+[tpl?'template '+templateLabel(tpl):'template image-led',s.selections.style&&s.selections.style!=='auto'?'style '+s.selections.style:'style image-led',s.selections.border&&s.selections.border!=='auto'?'border '+s.selections.border:'border image-led',s.selections.finish&&s.selections.finish!=='auto'?'finish '+s.selections.finish:'finish image-led',s.selections.oneOfOne?'1/1 explicitly on':'no forced rarity'].join(', ')+'.',
   s.identity.cardNumber?'Internal card number: '+s.identity.cardNumber+'.':'',
   'SOURCE IMAGE POLICY: preserve the recognizable identity and important source-image details. Treat the uploaded image as the factual visual source, not as a suggestion to invent a replacement subject.',
   freeform?'USER INSTRUCTION: '+freeform:'USER INSTRUCTION: Design the strongest coherent collectible card that fits the image and detected context.'
@@ -292,13 +297,15 @@ function renderSkillsPanel(route=null){
 }
 
 function updateBuilderSummary(){
- const s=state(), t=CARD_TEMPLATES?.choose(s);
+ const s=state();
+ const tpl=activeTemplate();
  const bits=[
-  t?.name||((s.selections.border||'white')+' border'),
-  s.selections.style,
-  s.selections.finish,
+  tpl?templateLabel(tpl):'image-led design',
+  s.selections.style==='auto'?'style from image / instruction':s.selections.style,
+  s.selections.border==='auto'?'border from design':s.selections.border+' border',
+  s.selections.finish==='auto'?'material from design':s.selections.finish,
   s.selections.signature==='signature'?'signature':'no signature',
-  s.selections.oneOfOne?'automatic 1/1':'no 1/1'
+  s.selections.oneOfOne?'1/1 requested':'no forced rarity'
  ];
  $('builderSummary').textContent='Auto build: '+bits.join(' · ')+'.';
 }
@@ -1288,6 +1295,47 @@ async function prepareUploadedImage(file){
  try{return await autoCropDominantImage(file)}
  catch{return {blob:file,cropped:false,box:null}}
 }
+function validNormalizedBox(box){
+ if(!box||typeof box!=='object')return null;
+ const x=Number(box.x),y=Number(box.y),width=Number(box.width),height=Number(box.height),confidence=Number(box.confidence||0);
+ if(![x,y,width,height].every(Number.isFinite))return null;
+ if(x<0||y<0||width<=0||height<=0||x+width>1.02||y+height>1.02)return null;
+ if(width*height<.035||width*height>.96)return null;
+ return {x:Math.max(0,x),y:Math.max(0,y),width:Math.min(1-x,width),height:Math.min(1-y,height),confidence};
+}
+async function cropToVisionBox(file,box){
+ const b=validNormalizedBox(box);
+ if(!b||b.confidence<55)return null;
+ const bitmap=await createImageBitmap(file);
+ const W=bitmap.width,H=bitmap.height;
+ const pad=Math.max(.06,Math.min(.18,.14-(b.confidence-55)/700));
+ let x=Math.max(0,b.x-b.width*pad),y=Math.max(0,b.y-b.height*pad);
+ let w=Math.min(1-x,b.width*(1+pad*2)),h=Math.min(1-y,b.height*(1+pad*2));
+ // Avoid fake intelligence: if the reader says nearly the whole image matters,
+ // retain the original rather than pretending to crop it.
+ if(w*h>.88){if(bitmap.close)bitmap.close();return null;}
+ const sx=Math.round(x*W),sy=Math.round(y*H),sw=Math.max(32,Math.round(w*W)),sh=Math.max(32,Math.round(h*H));
+ const out=document.createElement('canvas');out.width=Math.min(W-sx,sw);out.height=Math.min(H-sy,sh);
+ const ctx=out.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,out.width,out.height);
+ ctx.drawImage(bitmap,sx,sy,out.width,out.height,0,0,out.width,out.height);
+ if(bitmap.close)bitmap.close();
+ const blob=await new Promise((resolve,reject)=>out.toBlob(v=>v?resolve(v):reject(new Error('vision_crop_failed')),'image/jpeg',.97));
+ return {blob,cropped:true,method:'vision-subject',box:{x:sx,y:sy,width:out.width,height:out.height,sourceWidth:W,sourceHeight:H,confidence:b.confidence}};
+}
+async function chooseRenderCrop(file,vision={}){
+ try{
+  const visionCrop=await cropToVisionBox(file,vision.subjectBox);
+  if(visionCrop)return visionCrop;
+ }catch{}
+ try{
+  const contentCrop=await cropToVisionBox(file,vision.contentBox);
+  if(contentCrop)return {...contentCrop,method:'vision-content'};
+ }catch{}
+ try{
+  const heuristic=await autoCropDominantImage(file);
+  return {...heuristic,method:heuristic.cropped?'local-saliency':'original'};
+ }catch{return {blob:file,cropped:false,method:'original',box:null}}
+}
 
 
 function clearImageTray(){
@@ -1391,7 +1439,7 @@ async function setPhoto(file){
  const generation=++photoReadGeneration;
  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=''}
  if(!file){
-  sourceFile=null;
+  sourceFile=null;renderSourceFile=null;
   imageReadState='idle';imageReadPromise=Promise.resolve();
   setCreateAvailability(false);
   resetImageDataForNewSource();
@@ -1403,8 +1451,9 @@ async function setPhoto(file){
  // from the previous upload leak into the new card.
  resetImageDataForNewSource();
 
- // Lock the exact uploaded file immediately for preview and rendering.
+ // Keep the exact upload for OCR/search evidence; choose a separate render crop after the full read.
  sourceFile=file;
+ renderSourceFile=file;
  previewUrl=URL.createObjectURL(sourceFile);
  $('thumb').src=previewUrl;$('thumb').style.display='block';$('thumbText').style.display='none';
  $('thumbControls').style.display='flex';
@@ -1425,6 +1474,16 @@ async function setPhoto(file){
    const normalizedVision=normalizeVisionPayload(visionRaw||{});
    lastVision=normalizedVision;
    pipelineProgress('imageRead','complete');
+
+   const renderCrop=await chooseRenderCrop(file,normalizedVision);
+   if(generation!==photoReadGeneration||sourceFile!==file)return;
+   renderSourceFile=renderCrop?.blob||file;
+   recordBuildDiagnostic('crop',{status:'complete',cropped:Boolean(renderCrop?.cropped),method:renderCrop?.method||'original',box:renderCrop?.box||null});
+   if(renderCrop?.cropped){
+    if(previewUrl)URL.revokeObjectURL(previewUrl);
+    previewUrl=URL.createObjectURL(renderSourceFile);
+    $('thumb').src=previewUrl;
+   }
 
    // Put every supported AI-read fact into the visible fields immediately.
    // GPT then acts as manager and refines/organizes those same facts.
@@ -2196,7 +2255,7 @@ async function createCard(count=1,mode='original'){
   autoMode=false;autoBacks.clear();backResult='';
 
   stage('prepare','active','Using the exact uploaded image…');
-  lastBlob=sourceFile;
+  lastBlob=renderSourceFile||sourceFile;
   lastReferenceBlob=mode==='reference'?referenceFile:null;
   buildMode=mode;
   pipelineProgress('templateSelected','active');
