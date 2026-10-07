@@ -4,13 +4,13 @@
 const defaults={
  detected:{title:'',subjectType:'',brand:'',logo:'',era:'',date:'',keywords:[],category:'',cardMaker:'',cardYear:''},
  selections:{
-  border:'white',
-  style:'flagship',
+  border:'auto',
+  style:'auto',
   template:'auto',
   category:'auto',
-  finish:'paper',
+  finish:'auto',
   signature:'none',
-  oneOfOne:true,
+  oneOfOne:false,
   useLogo:true,
   useBrand:true,
   showName:true,
