@@ -78,3 +78,8 @@ test('templates compile into distinct executable design specifications',()=>{
  assert.notEqual(vintage.backgroundTreatment,modern.backgroundTreatment);
  assert.match(DB.promptFor(DB.get('topps-1971')),/sharp card corners/);
 });
+
+test('auto template matching does not require a forced default when evidence is absent', () => {
+  assert.equal(DB.match('just a nice photo', {category:'other'}), null);
+  assert.equal(DB.detectCategory({text:'Pink Floyd The Wall album artwork'}), 'other');
+});
