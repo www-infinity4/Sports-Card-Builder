@@ -12,7 +12,7 @@
  ]);
  const LISTS=Object.freeze(['facts','stats','timeline','highlights','credits','sources']);
  const FIELDS=Object.freeze([...SCALARS,...LISTS,'provenance','confidence']);
- const CATEGORIES=Object.freeze(['sports','movie','tv','music','product','generic']);
+ const CATEGORIES=Object.freeze(['fantasy','movie','tv','music','product','artifact','game','sports','generic']);
  const BACK_FORMATS=Object.freeze(['stats','biography','story','timeline','discography','movie-tv','product','compact-facts']);
  const ALIASES={cardMaker:'maker',manufacturer:'maker',cardYear:'year',dateText:'date',semanticDescription:'description',bio:'biography',format:'backFormat'};
  const DOMAIN_FIELDS={studio:['credits','Studio'],network:['credits','Network'],actor:['credits','Actor'],actorName:['credits','Actor'],
@@ -60,11 +60,14 @@
   if(CATEGORIES.includes(explicit))return explicit;
   if(explicit&& !['auto','other','unknown'].includes(explicit))return 'generic';
   const hint=text(type).toLowerCase();
+  if(/\b(?:dungeons|dragon|dungeon|rpg|role.?playing|wizard|sorcerer|fantasy|spell|monster|paladin|rogue)\b/.test(hint))return 'fantasy';
+  if(/\b(?:band|musician|music|singer|album|artist|song|concert)\b/.test(hint))return 'music';
+  if(/\b(?:tv|television|show|cartoon|anime|animation)\b/.test(hint))return 'tv';
+  if(/\b(?:movie|film|cinema)\b/.test(hint))return 'movie';
+  if(/\b(?:product|vehicle|toy|device|advertisement|advertising|ad|commercial)\b/.test(hint))return 'product';
+  if(/\b(?:artifact|coin|antique|relic|museum|fossil|mineral|jewel|gem|medal|stamp)\b/.test(hint))return 'artifact';
+  if(/\b(?:video.?game|board.?game|card.?game|console|arcade|game item|game character)\b/.test(hint))return 'game';
   if(/\b(?:athlete|player|baseball|basketball|football|hockey|sport|pitcher)\b/.test(hint))return 'sports';
-  if(/\b(?:band|musician|music|singer|album|artist)\b/.test(hint))return 'music';
-  if(/\b(?:tv|television|show)\b/.test(hint))return 'tv';
-  if(/\b(?:movie|film)\b/.test(hint))return 'movie';
-  if(/\b(?:product|vehicle|toy|device|advertisement|advertising|ad)\b/.test(hint))return 'product';
   return 'generic';
  }
  function backFormat(value,data){
