@@ -35,6 +35,9 @@ test('category detection separates sports, movies and tv', () => {
   assert.equal(DB.detectCategory({ text: 'Batman movie still from Warner film' }), 'movie');
   assert.equal(DB.detectCategory({ text: 'sitcom episode on NBC television' }), 'tv');
   assert.equal(DB.detectCategory({ category: 'tv', text: 'baseball' }), 'tv');
+  assert.equal(DB.detectCategory({ text: 'Dungeons and Dragons wizard spellbook' }), 'fantasy');
+  assert.equal(DB.detectCategory({ text: 'Pink Floyd album concert music' }), 'music');
+  assert.equal(DB.detectCategory({ text: 'museum antique coin artifact' }), 'artifact');
   assert.equal(DB.detectCategory({}), 'other');
   assert.equal(DB.defaultFor('movie').category, 'movie');
 });
